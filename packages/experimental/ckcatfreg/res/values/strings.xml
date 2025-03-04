@@ -1,0 +1,9 @@
+<resources>
+
+    <string name="app_name">CKCatFreg</string>
+	<string name="value">Value</string>
+	<string name="hint">Please input a value</string>
+	<string name="read">Read</string>
+	<string name="write">Write</string>
+	<string name="clear">Clear</string>
+</resources>
