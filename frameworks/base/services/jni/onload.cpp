@@ -12,6 +12,7 @@ int register_android_server_PowerManagerService(JNIEnv* env);
 int register_android_server_VibratorService(JNIEnv* env);
 int register_android_server_SystemServer(JNIEnv* env);
 int register_android_server_location_GpsLocationProvider(JNIEnv* env);
+int register_android_service_FregService(JNIEnv* env);
 };
 
 using namespace android;
@@ -35,6 +36,7 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void* reserved)
     register_android_server_VibratorService(env);
     register_android_server_SystemServer(env);
     register_android_server_location_GpsLocationProvider(env);
+    register_android_service_FregService(env);
 
     return JNI_VERSION_1_4;
 }

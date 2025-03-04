@@ -236,6 +236,15 @@ class ServerThread extends Thread {
         LocationManagerService location = null;
 
         if (factoryTest != SystemServer.FACTORY_TEST_LOW_LEVEL) {
+
+            try {
+                Slog.i(TAG, "CKCatFreg Service");
+                // 创建 FregService 对象并注册到服务管理器中
+                ServiceManager.addService("ckcatfreg", new FregService());
+            } catch (Throwable e) {
+                Slog.e(TAG, "Failure starting CKCatFreg Service", e);
+            }
+
             try {
                 Slog.i(TAG, "Device Policy");
                 devicePolicy = new DevicePolicyManagerService(context);
