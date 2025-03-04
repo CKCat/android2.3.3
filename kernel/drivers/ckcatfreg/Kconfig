@@ -1,0 +1,5 @@
+config CKCAT_FREG
+	tristate "CKCat Fake Register Driver"
+	default n
+	help
+	This is the ckcatfreg driver for android system.

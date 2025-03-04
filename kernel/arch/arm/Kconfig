@@ -1240,6 +1240,9 @@ menu "Device Drivers"
 
 source "drivers/base/Kconfig"
 
+# 添加 ckcatfreg 驱动的 Kconfig
+source "drivers/ckcatfreg/Kconfig"
+
 source "drivers/connector/Kconfig"
 
 if ALIGNMENT_TRAP || !CPU_CP15_MMU
@@ -1337,6 +1340,7 @@ source "drivers/regulator/Kconfig"
 source "drivers/uio/Kconfig"
 
 source "drivers/staging/Kconfig"
+
 
 endmenu
 
