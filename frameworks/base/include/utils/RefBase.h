@@ -58,7 +58,9 @@ inline bool operator _op_ (const U* o) const {                  \
 
 class RefBase
 {
-public:
+public:     /*  incStrong 和 decStrong 维护它所引用的 
+                weakref_impl 对象的引用计数。 
+            */
             void            incStrong(const void* id) const;
             void            decStrong(const void* id) const;
     
@@ -66,7 +68,7 @@ public:
 
             //! DEBUGGING ONLY: Get current strong ref count.
             int32_t         getStrongCount() const;
-
+    /* weakref_type 只定义了引用计数维护接口，具体的实现是由 weakref_impl 类提供的 */
     class weakref_type
     {
     public:
@@ -142,15 +144,19 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-
+/*  轻量级指针通过简单的引用计数技术来维护对象的生命周期. 
+    模板参数 T 表示对象的实际类型，它必须是继承自 LightRefBase 类的类.
+*/
 template <class T>
 class LightRefBase
 {
 public:
     inline LightRefBase() : mCount(0) { }
+    /* 增加对象的引用计数. */
     inline void incStrong(const void* id) const {
         android_atomic_inc(&mCount);
     }
+    /* 减少对象的引用计数. */
     inline void decStrong(const void* id) const {
         if (android_atomic_dec(&mCount) == 1) {
             delete static_cast<const T*>(this);
@@ -165,11 +171,14 @@ protected:
     inline ~LightRefBase() { }
     
 private:
+    /* 对象的引用计数值. */
     mutable volatile int32_t mCount;
 };
 
 // ---------------------------------------------------------------------------
-
+/*  强指针类，同时也是轻量级指针类的模板实例化版本.
+    模板参数 T 表示对象的实际类型，它必须是继承自 LightRefBase 类的类.
+*/
 template <typename T>
 class sp
 {
@@ -220,8 +229,11 @@ private:
     template<typename Y> friend class wp;
 
     // Optimization for wp::promote().
+    /*  在内部使用 RefBase::weakref_type 类来维护它所引用的对象
+        的强引用计数和弱引用计数.
+    */
     sp(T* p, weakref_type* refs);
-    
+    /* m_ptr 指向实际引用的对象. */
     T*              m_ptr;
 };
 
@@ -229,7 +241,7 @@ template <typename T>
 TextOutput& operator<<(TextOutput& to, const sp<T>& val);
 
 // ---------------------------------------------------------------------------
-
+/* 模板参数 T 表示对象的实际类型，它必须是从 RefBase 类继承下来的. */
 template <typename T>
 class wp
 {
@@ -286,8 +298,8 @@ private:
     template<typename Y> friend class sp;
     template<typename Y> friend class wp;
 
-    T*              m_ptr;
-    weakref_type*   m_refs;
+    T*              m_ptr;  /* 指向它所引用的对象. */
+    weakref_type*   m_refs; /* 维护对象的弱引用计数. */
 };
 
 template <typename T>
@@ -302,13 +314,16 @@ template<typename T>
 sp<T>::sp(T* other)
     : m_ptr(other)
 {
+    /*  因为 T 继承了 LightRefBase/RefBase, m_ptr 指向了对象 T, 
+        这里实际调用了 LightRefBase/RefBase::incStrong() 来增加对象的引用计数.
+    */
     if (other) other->incStrong(this);
 }
 
 template<typename T>
 sp<T>::sp(const sp<T>& other)
     : m_ptr(other.m_ptr)
-{
+{   /* 这里与上面同理. */
     if (m_ptr) m_ptr->incStrong(this);
 }
 
@@ -327,7 +342,9 @@ sp<T>::sp(const sp<U>& other)
 
 template<typename T>
 sp<T>::~sp()
-{
+{   /*  因为 T 继承了 LightRefBase/RefBase, m_ptr 指向了对象 T, 这里实际调用了 
+        LightRefBase/RefBase::decStrong() 来减少对象的引用计数. 
+    */
     if (m_ptr) m_ptr->decStrong(this);
 }
 
@@ -383,7 +400,10 @@ void sp<T>::clear()
         m_ptr = 0;
     }
 }
-
+ /* p 指向对象地址, refs 指向该对象内部的弱引用计数.对象地址不为NULL的情况下，
+    调用它内部的弱引用计数器对象的成员函数 attemptIncStrong 来试图增加该对象
+    的强引用计数,实际调用 weakref_type::attemptIncStrong().
+ */
 template<typename T>
 sp<T>::sp(T* p, weakref_type* refs)
     : m_ptr((p && refs->attemptIncStrong(this)) ? p : 0)
@@ -402,7 +422,7 @@ inline TextOutput& operator<<(TextOutput& to, const sp<T>& val)
 template<typename T>
 wp<T>::wp(T* other)
     : m_ptr(other)
-{
+{   /* T 是继承了 RefBase 类的子类, 这里实际调用 RefBase::createWeak() */
     if (other) m_refs = other->createWeak(this);
 }
 
@@ -451,6 +471,9 @@ wp<T>::wp(const sp<U>& other)
 template<typename T>
 wp<T>::~wp()
 {
+    /*  调用 m_refs 的成员函数 decWeak 来减少对象的弱引用计数.
+        实际调用 weakref_impl::decWeak()
+    */
     if (m_ptr) m_refs->decWeak(this);
 }
 
@@ -535,7 +558,7 @@ void wp<T>::set_object_and_refs(T* other, weakref_type* refs)
 
 template<typename T>
 sp<T> wp<T>::promote() const
-{
+{   /* 弱指针通过其内部的成员变量 m_ptr 和 m_refs 来创建一个强指针.*/
     return sp<T>(m_ptr, m_refs);
 }
 

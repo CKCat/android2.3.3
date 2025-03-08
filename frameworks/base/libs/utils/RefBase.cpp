@@ -51,10 +51,10 @@ namespace android {
 class RefBase::weakref_impl : public RefBase::weakref_type
 {
 public:
-    volatile int32_t    mStrong;
-    volatile int32_t    mWeak;
-    RefBase* const      mBase;
-    volatile int32_t    mFlags;
+    volatile int32_t    mStrong;    // 强引用计数.
+    volatile int32_t    mWeak;      // 弱引用计数.
+    RefBase* const      mBase;      // 引用的对象的地址.
+    volatile int32_t    mFlags;     // 对象的生命周期控制方式标志.
 
 
 #if !DEBUG_REFS
@@ -279,12 +279,16 @@ private:
 // ---------------------------------------------------------------------------
 
 void RefBase::incStrong(const void* id) const
-{
+{   /* id 是 sp 自身的指针. */
     weakref_impl* const refs = mRefs;
     refs->addWeakRef(id);
+    /*  增加对象的弱引用计数. weakref_impl 继承自 weakref_type 类，
+        这里实际调用 weakref_type::incWeak() 来增加对象的弱引用计数的.
+    */
     refs->incWeak(id);
-    
+
     refs->addStrongRef(id);
+    /* 增加对象的强引用计数. 返回原来的值.*/
     const int32_t c = android_atomic_inc(&refs->mStrong);
     LOG_ASSERT(c > 0, "incStrong() called on %p after last strong ref", refs);
 #if PRINT_REFS
@@ -293,8 +297,13 @@ void RefBase::incStrong(const void* id) const
     if (c != INITIAL_STRONG_VALUE)  {
         return;
     }
-
+    /*  如果对象是第一次被强指针引用，则需要将它调整为1.因为 mStrong 的
+        初始值是 INITIAL_STRONG_VALUE.
+    */
     android_atomic_add(-INITIAL_STRONG_VALUE, &refs->mStrong);
+    /*  然后调用对象的成员函数 onFirstRef 来通知对象，以便对象可以执行一些
+        初始化工作.子类需要重载这个函数来实现自己的初始化工作.
+    */
     const_cast<RefBase*>(this)->onFirstRef();
 }
 
@@ -302,18 +311,27 @@ void RefBase::decStrong(const void* id) const
 {
     weakref_impl* const refs = mRefs;
     refs->removeStrongRef(id);
+    /* 减少对象的强引用计数,返回原来的值. */
     const int32_t c = android_atomic_dec(&refs->mStrong);
 #if PRINT_REFS
     LOGD("decStrong of %p from %p: cnt=%d\n", this, id, c);
 #endif
     LOG_ASSERT(c >= 1, "decStrong() called on %p too many times", refs);
-    if (c == 1) {
+    if (c == 1) {  /*  这里表示对象的强引用计数为0. */
+        /*  调用 onLastStrongRef 来执行一些业务相关的逻辑.
+            同时也要考虑是否需要释放该对象.
+         */
         const_cast<RefBase*>(this)->onLastStrongRef(id);
+        /* 检查对象的生命周期是否受弱引用计数控制. */
         if ((refs->mFlags&OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK) {
-            delete this;
+            /*  如果不受弱引用计数控制，则直接释放对象.
+                同时会导致 RefBase 类的析构函数被调用.
+            */
+            delete this; 
         }
     }
     refs->removeWeakRef(id);
+    /* 减少对象的弱引用计数的操作,实际执行 weakref_type::decWeak() */
     refs->decWeak(id);
 }
 
@@ -354,37 +372,53 @@ RefBase* RefBase::weakref_type::refBase() const
 
 void RefBase::weakref_type::incWeak(const void* id)
 {
+    /* this 指针实际指向 mRefs 对象. */
     weakref_impl* const impl = static_cast<weakref_impl*>(this);
     impl->addWeakRef(id);
+    /* 增加对象的弱引用计数 mWeak 的值，返回原来的值. */
     const int32_t c = android_atomic_inc(&impl->mWeak);
     LOG_ASSERT(c >= 0, "incWeak called on %p after last weak ref", this);
 }
 
 void RefBase::weakref_type::decWeak(const void* id)
-{
+{   /* this 指针实际指向 mRefs 对象. */
     weakref_impl* const impl = static_cast<weakref_impl*>(this);
     impl->removeWeakRef(id);
+    /* 减少对象的弱引用计数 mWeak 的值，并返回原来的值. */
     const int32_t c = android_atomic_dec(&impl->mWeak);
     LOG_ASSERT(c >= 1, "decWeak called on %p too many times", this);
     if (c != 1) return;
-    
+    /*  如果执行到这里，则说明弱引用计数和强指针计数都为 0.
+        通过判断生命周期控制方式以及该对象是否被强指针引用过，来释放对象.
+    */
     if ((impl->mFlags&OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK) {
         if (impl->mStrong == INITIAL_STRONG_VALUE)
+            /*  这里表明对象从来没有被强指针引用过,
+                就要释放该对象,否则对象将得不到释放*/
             delete impl->mBase;
         else {
 //            LOGV("Freeing refs %p of old RefBase %p\n", this, impl->mBase);
+            /*  这里表明对象曾经被强指针引用过,但是已经被释放了.
+                释放其内部的引用计数器对象 weakref_impl. 
+            */
             delete impl;
         }
-    } else {
+    } else {/* 对象的生命周期受弱引用计数控制 */
+        /* 调用 onLastWeakRef 来执行一些业务相关的逻辑. */
         impl->mBase->onLastWeakRef(id);
+        /* 检查对象的生命周期是否完全不受强引用计数和弱引用计数控制. */
         if ((impl->mFlags&OBJECT_LIFETIME_FOREVER) != OBJECT_LIFETIME_FOREVER) {
+            /* 这里表明对象受强引用计数和弱引用计数控制，就要释放对象所占用的内存.*/
             delete impl->mBase;
         }
+        /*  如果对象的生命周期完全不受强引用计数和弱引用计数控制时，Android 系统
+            所提供的智能指针就退化成一个普通的C++指针，需要手动释放.
+        */
     }
 }
 
 bool RefBase::weakref_type::attemptIncStrong(const void* id)
-{
+{   /*  增加对象的弱引用计数. */
     incWeak(id);
     
     weakref_impl* const impl = static_cast<weakref_impl*>(this);
@@ -392,16 +426,24 @@ bool RefBase::weakref_type::attemptIncStrong(const void* id)
     int32_t curCount = impl->mStrong;
     LOG_ASSERT(curCount >= 0, "attemptIncStrong called on %p after underflow",
                this);
+    /* 判断该对象是否被其他强指针引用. */
     while (curCount > 0 && curCount != INITIAL_STRONG_VALUE) {
+        /*  第一种情况: 对象已经被其他强指针引用,这时对象一定是存在的. 
+            通过原子操作来增加对象的强引用计数,成功返回0,失败返回1.    
+        */
         if (android_atomic_cmpxchg(curCount, curCount+1, &impl->mStrong) == 0) {
             break;
         }
         curCount = impl->mStrong;
     }
-    
+
     if (curCount <= 0 || curCount == INITIAL_STRONG_VALUE) {
+        /* 第二种情况: 对象没有被任何强指针引用，对象就不一定存在.*/
         bool allow;
         if (curCount == INITIAL_STRONG_VALUE) {
+            /*  对象从来没有被强指针引用过, 如果对象生命周期受弱引用影响或
+                onIncStrongAttempted 的返回值为 true，则可以升级为强指针.
+            */
             // Attempting to acquire first strong reference...  this is allowed
             // if the object does NOT have a longer lifetime (meaning the
             // implementation doesn't need to see this), or if the implementation
@@ -409,6 +451,9 @@ bool RefBase::weakref_type::attemptIncStrong(const void* id)
             allow = (impl->mFlags&OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK
                   || impl->mBase->onIncStrongAttempted(FIRST_INC_STRONG, id);
         } else {
+            /*  对象之前被强指针引用过, 并且生命周期受弱引用影响并且
+                onIncStrongAttempted 返回值为 true,则可以升级为强指针.
+            */
             // Attempting to revive the object...  this is allowed
             // if the object DOES have a longer lifetime (so we can safely
             // call the object with only a weak ref) and the implementation
@@ -417,9 +462,11 @@ bool RefBase::weakref_type::attemptIncStrong(const void* id)
                   && impl->mBase->onIncStrongAttempted(FIRST_INC_STRONG, id);
         }
         if (!allow) {
+            /* 这里说明升级强指针失败,先减少对象的弱引用计数,然后返回 false. */
             decWeak(id);
             return false;
         }
+        /* 这里说明升级强指针成功,增加对象的强引用计数 */
         curCount = android_atomic_inc(&impl->mStrong);
 
         // If the strong reference count has already been incremented by
@@ -484,7 +531,7 @@ void RefBase::weakref_type::trackMe(bool enable, bool retain)
 }
 
 RefBase::weakref_type* RefBase::createWeak(const void* id) const
-{
+{   /* 增加实际引用对象的弱引用计数. */
     mRefs->incWeak(id);
     return mRefs;
 }
@@ -504,6 +551,7 @@ RefBase::~RefBase()
 {
 //    LOGV("Destroying RefBase %p (refs %p)\n", this, mRefs);
     if (mRefs->mWeak == 0) {
+        /* 对象的弱引用计数值为0,则把引用计数对象 mRefs 也一起释放. */
 //        LOGV("Freeing refs %p of old RefBase %p\n", mRefs, this);
         delete mRefs;
     }
