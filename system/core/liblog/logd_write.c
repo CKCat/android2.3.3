@@ -79,7 +79,7 @@ static int __write_to_log_kernel(log_id_t log_id, struct iovec *vec, size_t nr)
 {
     ssize_t ret;
     int log_fd;
-
+    /* 通过 log_id 在全局数组 log_fds 中找到对应的日志设备文件描述符. */
     if (/*(int)log_id >= 0 &&*/ (int)log_id < (int)LOG_ID_MAX) {
         log_fd = log_fds[(int)log_id];
     } else {
@@ -87,7 +87,9 @@ static int __write_to_log_kernel(log_id_t log_id, struct iovec *vec, size_t nr)
     }
 
     do {
+        /* 调用 log_writev(writev) 将日志写入设备. */
         ret = log_writev(log_fd, vec, nr);
+        /* 如果 ret < 0 && errno == EINTR 则表示被信号中断，需要重新写入. */
     } while (ret < 0 && errno == EINTR);
 
     return ret;
@@ -98,13 +100,14 @@ static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
 #ifdef HAVE_PTHREADS
     pthread_mutex_lock(&log_init_lock);
 #endif
-
+    /* 判断 write_to_log 是否等于自身，从而决定是否打开 log 设备. */
     if (write_to_log == __write_to_log_init) {
+        /* log_open 实际调用 open. */
         log_fds[LOG_ID_MAIN] = log_open("/dev/"LOGGER_LOG_MAIN, O_WRONLY);
         log_fds[LOG_ID_RADIO] = log_open("/dev/"LOGGER_LOG_RADIO, O_WRONLY);
         log_fds[LOG_ID_EVENTS] = log_open("/dev/"LOGGER_LOG_EVENTS, O_WRONLY);
         log_fds[LOG_ID_SYSTEM] = log_open("/dev/"LOGGER_LOG_SYSTEM, O_WRONLY);
-
+        /* 将 write_to_log 指向 __write_to_log_kernel. */
         write_to_log = __write_to_log_kernel;
 
         if (log_fds[LOG_ID_MAIN] < 0 || log_fds[LOG_ID_RADIO] < 0 ||
@@ -115,6 +118,7 @@ static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
             log_fds[LOG_ID_MAIN] = -1;
             log_fds[LOG_ID_RADIO] = -1;
             log_fds[LOG_ID_EVENTS] = -1;
+            /* 如果打开设备失败，则将 write_to_log 指向 __write_to_log_null. */
             write_to_log = __write_to_log_null;
         }
 
@@ -146,15 +150,15 @@ int __android_log_write(int prio, const char *tag, const char *msg)
         !strcmp(tag, "STK") ||
         !strcmp(tag, "CDMA") ||
         !strcmp(tag, "PHONE") ||
-        !strcmp(tag, "SMS"))
+        !strcmp(tag, "SMS")) /* 如果 tag 满足这些条件，则是 radio 日志记录. */
             log_id = LOG_ID_RADIO;
 
-    vec[0].iov_base   = (unsigned char *) &prio;
+    vec[0].iov_base   = (unsigned char *) &prio; /* 优先级 */
     vec[0].iov_len    = 1;
-    vec[1].iov_base   = (void *) tag;
-    vec[1].iov_len    = strlen(tag) + 1;
-    vec[2].iov_base   = (void *) msg;
-    vec[2].iov_len    = strlen(msg) + 1;
+    vec[1].iov_base   = (void *) tag;    /* 标签 */
+    vec[1].iov_len    = strlen(tag) + 1; /* 标签长度 + '\0' */
+    vec[2].iov_base   = (void *) msg;    /* 消息 */
+    vec[2].iov_len    = strlen(msg) + 1; /* 消息长度 + '\0' */
 
     return write_to_log(log_id, vec, 3);
 }
@@ -174,15 +178,15 @@ int __android_log_buf_write(int bufID, int prio, const char *tag, const char *ms
         !strcmp(tag, "STK") ||
         !strcmp(tag, "CDMA") ||
         !strcmp(tag, "PHONE") ||
-        !strcmp(tag, "SMS"))
+        !strcmp(tag, "SMS")) /* 如果 tag 满足这些条件，则是 radio 日志记录. */
             bufID = LOG_ID_RADIO;
 
-    vec[0].iov_base   = (unsigned char *) &prio;
+    vec[0].iov_base   = (unsigned char *) &prio; /* 优先级 */
     vec[0].iov_len    = 1;
-    vec[1].iov_base   = (void *) tag;
-    vec[1].iov_len    = strlen(tag) + 1;
-    vec[2].iov_base   = (void *) msg;
-    vec[2].iov_len    = strlen(msg) + 1;
+    vec[1].iov_base   = (void *) tag;    /* 标签 */
+    vec[1].iov_len    = strlen(tag) + 1; /* 标签长度 + '\0' */
+    vec[2].iov_base   = (void *) msg;    /* 消息 */
+    vec[2].iov_len    = strlen(msg) + 1; /* 消息长度 + '\0' */
 
     return write_to_log(bufID, vec, 3);
 }
@@ -190,9 +194,9 @@ int __android_log_buf_write(int bufID, int prio, const char *tag, const char *ms
 int __android_log_vprint(int prio, const char *tag, const char *fmt, va_list ap)
 {
     char buf[LOG_BUF_SIZE];    
-
+    /* 格式化日志内容. */
     vsnprintf(buf, LOG_BUF_SIZE, fmt, ap);
-
+    /* 写入日志记录. */
     return __android_log_write(prio, tag, buf);
 }
 
@@ -235,6 +239,7 @@ void __android_log_assert(const char *cond, const char *tag,
     __builtin_trap(); /* trap so we have a chance to debug the situation */
 }
 
+/* 写入的日志类型为 events. */
 int __android_log_bwrite(int32_t tag, const void *payload, size_t len)
 {
     struct iovec vec[2];
