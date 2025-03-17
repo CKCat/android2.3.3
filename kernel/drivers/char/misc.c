@@ -194,29 +194,37 @@ int misc_register(struct miscdevice * misc)
 	INIT_LIST_HEAD(&misc->list);
 
 	mutex_lock(&misc_mtx);
+	/* 检查所要注册的 misc 设备是否已经被注册. */
 	list_for_each_entry(c, &misc_list, list) {
 		if (c->minor == misc->minor) {
 			mutex_unlock(&misc_mtx);
 			return -EBUSY;
 		}
 	}
-
+	/* 为所要注册的日志系统分配从设备号. */
 	if (misc->minor == MISC_DYNAMIC_MINOR) {
 		int i = DYNAMIC_MINORS;
-		while (--i >= 0)
+		while (--i >= 0) 
+			/* 检查是否被分配.  i>>3 相当与 i/8 . i&7 相当于 i%8，
+				i = 63; i>>3 = 7, i&7 = 7, 1<<7 = 0b1000 0000 
+				misc_minors[7]& 0b1000 0000 实际就是判断这个元素的
+				最高位是否为0. 后面依次类推。
+			*/
 			if ( (misc_minors[i>>3] & (1 << (i&7))) == 0)
 				break;
 		if (i<0) {
 			mutex_unlock(&misc_mtx);
 			return -EBUSY;
 		}
+		/* 没有被分配，则分配. */
 		misc->minor = i;
 	}
-
+	/* 设置从设备号已经被使用. */
 	if (misc->minor < DYNAMIC_MINORS)
 		misc_minors[misc->minor >> 3] |= 1 << (misc->minor & 7);
+	/* 创建设备号对象 */
 	dev = MKDEV(MISC_MAJOR, misc->minor);
-
+	/* 将日志设备 misc 注册到系统中. */
 	misc->this_device = device_create(misc_class, misc->parent, dev, NULL,
 					  "%s", misc->name);
 	if (IS_ERR(misc->this_device)) {
@@ -228,6 +236,7 @@ int misc_register(struct miscdevice * misc)
 	 * Add it to the front, so that later devices can "override"
 	 * earlier defaults
 	 */
+	/* 将 misc 设备添加到 misc 设备列表中. */
 	list_add(&misc->list, &misc_list);
  out:
 	mutex_unlock(&misc_mtx);

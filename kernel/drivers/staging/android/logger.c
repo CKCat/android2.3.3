@@ -34,6 +34,15 @@
  * not need additional reference counting. The structure is protected by the
  * mutex 'mutex'.
  */
+/* logger_log 描述一个日志缓冲区.
+	- buffer 指向一个内核缓冲区，用来存放日志记录，大小为 size 字节.
+	- misc 是一个 miscdevice 结构，用来表示日志设备.
+	- wq 是一个等待队列,用来记录那些正在等待读取新的日志记录的进程.
+	- readers 是一个链表，用来记录那些正在读取日志的进程，每一个进程都使用一个结构体 logger_reader 来描述。
+	- mutex 是一个互斥锁，用来保护 buffer 的并发访问.
+	- w_off 表示下一条要写入的日志记录的位置.
+	- head 表示新进程读取日志是，从什么位置开始读取.
+*/
 struct logger_log {
 	unsigned char *		buffer;	/* the ring buffer itself */
 	struct miscdevice	misc;	/* misc device representing the log */
@@ -51,6 +60,12 @@ struct logger_log {
  * This object lives from open to release, so we don't need additional
  * reference counting. The structure is protected by log->mutex.
  */
+/*
+	logger_reader 用来描述一个正在读取某一个日志缓冲区的日志记录的进程.
+	log 指向要读取的日志缓冲区结构体.
+	list 是一个链表，用来链接所有读取同一类型日志记录的进程.
+	r_off 表示当前进程下一条要读取的日志记录在缓冲区的位置.
+*/
 struct logger_reader {
 	struct logger_log *	log;	/* associated log */
 	struct list_head	list;	/* entry in logger_log's list */
@@ -58,6 +73,7 @@ struct logger_reader {
 };
 
 /* logger_offset - returns index 'n' into the log via (optimized) modulus */
+/* 计算环形缓冲区中的新位置，处理缓冲区回绕 */
 #define logger_offset(n)	((n) & (log->size - 1))
 
 /*
@@ -155,34 +171,34 @@ static ssize_t do_read_log_to_user(struct logger_log *log,
 static ssize_t logger_read(struct file *file, char __user *buf,
 			   size_t count, loff_t *pos)
 {
-	struct logger_reader *reader = file->private_data;
-	struct logger_log *log = reader->log;
+	struct logger_reader *reader = file->private_data; /*获取 reader */
+	struct logger_log *log = reader->log; /* 获取 log */
 	ssize_t ret;
 	DEFINE_WAIT(wait);
 
 start:
-	while (1) {
+	while (1) { /* 在循环中检查 log 中是否有日志可读. */
 		prepare_to_wait(&log->wq, &wait, TASK_INTERRUPTIBLE);
 
 		mutex_lock(&log->mutex);
-		ret = (log->w_off == reader->r_off);
+		ret = (log->w_off == reader->r_off); /* 读和写的位置不同时，可读. */
 		mutex_unlock(&log->mutex);
 		if (!ret)
 			break;
-
+		/* 如果进程是以非阻塞状态打开，将直接返回到用户空间.*/
 		if (file->f_flags & O_NONBLOCK) {
 			ret = -EAGAIN;
 			break;
 		}
-
+		/* 检查当前进程是否有信号正在等待处理. */
 		if (signal_pending(current)) {
 			ret = -EINTR;
 			break;
 		}
-
+		/* 使当前进程进入睡眠状态. */
 		schedule();
 	}
-
+	/* 有日志可读时，将等待队列 wait 从 log->wq 中移除. */
 	finish_wait(&log->wq, &wait);
 	if (ret)
 		return ret;
@@ -190,12 +206,13 @@ start:
 	mutex_lock(&log->mutex);
 
 	/* is there still something to read or did we race? */
-	if (unlikely(log->w_off == reader->r_off)) {
+	if (unlikely(log->w_off == reader->r_off)) { /* 当读与写的位置相同时，说明没有日志可读. */
 		mutex_unlock(&log->mutex);
 		goto start;
 	}
 
 	/* get the size of the next entry */
+	/* 获取下一条要读取的日志记录的长度. */
 	ret = get_entry_len(log, reader->r_off);
 	if (count < ret) {
 		ret = -EINVAL;
@@ -203,6 +220,7 @@ start:
 	}
 
 	/* get exactly one entry from the log */
+	/* 读取日志. */
 	ret = do_read_log_to_user(log, reader, buf, ret);
 
 out:
@@ -217,6 +235,7 @@ out:
  *
  * Caller must hold log->mutex.
  */
+/* 将位置向前移动到下一个有效日志条目的起始位置. */
 static size_t get_next_entry(struct logger_log *log, size_t off, size_t len)
 {
 	size_t count = 0;
@@ -234,6 +253,7 @@ static size_t get_next_entry(struct logger_log *log, size_t off, size_t len)
  * clock_interval - is a < c < b in mod-space? Put another way, does the line
  * from a to b cross c?
  */
+/* 检查一个位置是否位于两个位置之间 */
 static inline int clock_interval(size_t a, size_t b, size_t c)
 {
 	if (b < a) {
@@ -255,15 +275,24 @@ static inline int clock_interval(size_t a, size_t b, size_t c)
  *
  * The caller needs to hold log->mutex.
  */
-static void fix_up_readers(struct logger_log *log, size_t len)
+/*
+	调整所有读者的读取位置（r_off）和日志缓冲区的起始位置（head），
+	确保它们不会读取到被新写入数据覆盖的日志条目。
+*/
+static void fix_up_readers(struct logger_log *log, 
+	size_t len /* 要写入的日志记录的总长度.*/)
 {
+
+	/* 获取缓冲区结构体 log 的下一条日志记录的写入位置. */
 	size_t old = log->w_off;
+	/* 获取写入之后的下一条日志记录的写入位置. */
 	size_t new = logger_offset(old + len);
 	struct logger_reader *reader;
-
+	/* 位于 old 和 new 之间的日志是无效的,因为它们即将被覆盖. */
 	if (clock_interval(old, new, log->head))
+		/* 新的写入位置是否覆盖了 log->head, 则将 log->head 向前移动*/
 		log->head = get_next_entry(log, log->head, len);
-
+	/* 调整所有 reader 的读取位置 */
 	list_for_each_entry(reader, &log->readers, list)
 		if (clock_interval(old, new, reader->r_off))
 			reader->r_off = get_next_entry(log, reader->r_off, len);
@@ -319,9 +348,11 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
  * writev(), and aio_write(). Writes are our fast path, and we try to optimize
  * them above all else.
  */
-ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
-			 unsigned long nr_segs, loff_t ppos)
+ssize_t logger_aio_write(struct kiocb *iocb, /* IO 上下文. */
+			const struct iovec *iov, /* 数组，要写入的日志记录内容,其长度由 nr_segs 决定. */
+			unsigned long nr_segs, loff_t ppos /* 日志要写入的位置,可以忽略.*/)
 {
+	/* 获取日志缓冲区结构体 log. */
 	struct logger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig = log->w_off;
 	struct logger_entry header;
@@ -329,11 +360,12 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	ssize_t ret = 0;
 
 	now = current_kernel_time();
-
+	/* 初始化日志记录结构体 header. */
 	header.pid = current->tgid;
 	header.tid = current->pid;
 	header.sec = now.tv_sec;
 	header.nsec = now.tv_nsec;
+	/* 日志记录结构最大的长度为 LOGGER_ENTRY_MAX_PAYLOAD,这里需要取较小的值. */
 	header.len = min_t(size_t, iocb->ki_left, LOGGER_ENTRY_MAX_PAYLOAD);
 
 	/* null writes succeed, return zero */
@@ -348,6 +380,9 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	 * because if we partially fail, we can end up with clobbered log
 	 * entries that encroach on readable buffer.
 	 */
+	/*  修正那些正在读取该日志缓冲区的进程的当前日志记录的读取位置，
+		以及修正新的日志读取进程的日志记录开始读取位置
+	*/
 	fix_up_readers(log, sizeof(struct logger_entry) + header.len);
 
 	do_write_log(log, &header, sizeof(struct logger_entry));
@@ -390,16 +425,17 @@ static int logger_open(struct inode *inode, struct file *file)
 {
 	struct logger_log *log;
 	int ret;
-
+	/* 将设备设置为随机不可访问，即不可以调用 lseek 来设置当前读写位置.*/
 	ret = nonseekable_open(inode, file);
 	if (ret)
 		return ret;
-
+	/* 根据设备号获得要操作的日志缓冲区结构体.*/
 	log = get_log_from_minor(MINOR(inode->i_rdev));
 	if (!log)
 		return -ENODEV;
 
-	if (file->f_mode & FMODE_READ) {
+	if (file->f_mode & FMODE_READ) {/* 以读模式打开设备. */
+		/* 首先为当前进程创建一个 logger_reader 结构体. */
 		struct logger_reader *reader;
 
 		reader = kmalloc(sizeof(struct logger_reader), GFP_KERNEL);
@@ -407,15 +443,17 @@ static int logger_open(struct inode *inode, struct file *file)
 			return -ENOMEM;
 
 		reader->log = log;
-		INIT_LIST_HEAD(&reader->list);
+		INIT_LIST_HEAD(&reader->list); /* 初始化链表头 */
 
 		mutex_lock(&log->mutex);
+		/* 告诉进程从 log->head 位置开始读取日志记录. */
 		reader->r_off = log->head;
-		list_add_tail(&reader->list, &log->readers);
+		list_add_tail(&reader->list, &log->readers); /* 将 list 添加到 readers 链表尾部 */
 		mutex_unlock(&log->mutex);
-
+		/* 将 reader 结构体保存到  file->private_data 中*/
 		file->private_data = reader;
 	} else
+		/* 以写模式打开设备，则将结构体保存到 file->private_data 中. */
 		file->private_data = log;
 
 	return 0;
@@ -519,6 +557,7 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+/* 日志文件操作函数表 */
 static struct file_operations logger_fops = {
 	.owner = THIS_MODULE,
 	.read = logger_read,
@@ -553,10 +592,12 @@ static struct logger_log VAR = { \
 	.size = SIZE, \
 };
 
+/* 定义了3种日志类型 system 和 main 的日志都保存在 log_main 中 */
 DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 64*1024)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
 DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 64*1024)
 
+/* 根据设备号获得相应的日志缓冲区结构体. */
 static struct logger_log * get_log_from_minor(int minor)
 {
 	if (log_main.misc.minor == minor)
@@ -571,7 +612,7 @@ static struct logger_log * get_log_from_minor(int minor)
 static int __init init_log(struct logger_log *log)
 {
 	int ret;
-
+	/* 将日志设备注册到系统中. */
 	ret = misc_register(&log->misc);
 	if (unlikely(ret)) {
 		printk(KERN_ERR "logger: failed to register misc "
@@ -585,6 +626,7 @@ static int __init init_log(struct logger_log *log)
 	return 0;
 }
 
+/* 日志设备初始化，实际就是调用 init_log 将三个日志设备注册到系统中. */
 static int __init logger_init(void)
 {
 	int ret;

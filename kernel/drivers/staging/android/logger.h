@@ -20,12 +20,13 @@
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
+/* logger_entry 用来描述一个日志记录 */
 struct logger_entry {
 	__u16		len;	/* length of the payload */
 	__u16		__pad;	/* no matter what, we get 2 bytes of padding */
 	__s32		pid;	/* generating process's pid */
 	__s32		tid;	/* generating process's tid */
-	__s32		sec;	/* seconds since Epoch */
+	__s32		sec;	/* seconds since Epoch 时间戳 */
 	__s32		nsec;	/* nanoseconds */
 	char		msg[0];	/* the entry's payload */
 };
@@ -34,7 +35,9 @@ struct logger_entry {
 #define LOGGER_LOG_EVENTS	"log_events"	/* system/hardware events */
 #define LOGGER_LOG_MAIN		"log_main"	/* everything else */
 
+/* 每个日至记录的最大长度是 4K */
 #define LOGGER_ENTRY_MAX_LEN		(4*1024)
+/* 每个日志记录的最大有效载荷长度是 4K - sizeof(struct logger_entry) */
 #define LOGGER_ENTRY_MAX_PAYLOAD	\
 	(LOGGER_ENTRY_MAX_LEN - sizeof(struct logger_entry))
 
