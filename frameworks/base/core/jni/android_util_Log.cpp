@@ -106,7 +106,7 @@ static jint android_util_Log_println_native(JNIEnv* env, jobject clazz,
     const char* tag = NULL;
     const char* msg = NULL;
 
-    if (msgObj == NULL) {
+    if (msgObj == NULL) {/* 检查写入的 msgObj 是否为 null. */
         jclass npeClazz;
 
         npeClazz = env->FindClass("java/lang/NullPointerException");
@@ -116,7 +116,7 @@ static jint android_util_Log_println_native(JNIEnv* env, jobject clazz,
         return -1;
     }
 
-    if (bufID < 0 || bufID >= LOG_ID_MAX) {
+    if (bufID < 0 || bufID >= LOG_ID_MAX) { /* 检查类型是否合理. */
         jclass npeClazz;
 
         npeClazz = env->FindClass("java/lang/NullPointerException");
@@ -129,7 +129,7 @@ static jint android_util_Log_println_native(JNIEnv* env, jobject clazz,
     if (tagObj != NULL)
         tag = env->GetStringUTFChars(tagObj, NULL);
     msg = env->GetStringUTFChars(msgObj, NULL);
-
+    /* 写日志 */
     int res = __android_log_buf_write(bufID, (android_LogPriority)priority, tag, msg);
 
     if (tag != NULL)

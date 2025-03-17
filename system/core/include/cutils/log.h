@@ -64,6 +64,7 @@ extern "C" {
  * logging macros.  You can change this preprocessor definition
  * before using the other macros to change the tag.
  */
+/* LOG_TAG 默认为 NULL,如果一个模块要定义自己的日志记录标签，则需要定义 LOG_TAG 宏. */
 #ifndef LOG_TAG
 #define LOG_TAG NULL
 #endif
@@ -369,6 +370,7 @@ extern "C" {
  * Event log entry types.  These must match up with the declarations in
  * java/android/android/util/EventLog.java.
  */
+/* events 日志记录类型的枚举值. */
 typedef enum {
     EVENT_TYPE_INT      = 0,
     EVENT_TYPE_LONG     = 1,

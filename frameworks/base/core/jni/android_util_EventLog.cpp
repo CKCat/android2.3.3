@@ -78,10 +78,10 @@ static jint android_util_EventLog_writeEvent_String(JNIEnv* env, jobject clazz,
     const int max = sizeof(buf) - sizeof(len) - 2;  // Type byte, final newline
     if (len > max) len = max;
 
-    buf[0] = EVENT_TYPE_STRING;
-    memcpy(&buf[1], &len, sizeof(len));
-    memcpy(&buf[1 + sizeof(len)], str, len);
-    buf[1 + sizeof(len) + len] = '\n';
+    buf[0] = EVENT_TYPE_STRING; /* 类型为字符串. */
+    memcpy(&buf[1], &len, sizeof(len)); /* 字符串的长度 */
+    memcpy(&buf[1 + sizeof(len)], str, len); /* 字符串的内容. */
+    buf[1 + sizeof(len) + len] = '\n'; /* 结束符. */
 
     if (value != NULL) env->ReleaseStringUTFChars(value, str);
     return android_bWriteLog(tag, buf, 2 + sizeof(len) + len);
@@ -102,14 +102,14 @@ static jint android_util_EventLog_writeEvent_Array(JNIEnv* env, jobject clazz,
     size_t pos = 2;  // Save room for type tag & array count
 
     jsize copied = 0, num = env->GetArrayLength(value);
-    for (; copied < num && copied < 255; ++copied) {
+    for (; copied < num && copied < 255; ++copied) { /* 最多包含 255 个元素. */
         jobject item = env->GetObjectArrayElement(value, copied);
         if (item == NULL || env->IsInstanceOf(item, gStringClass)) {
             if (pos + 1 + sizeof(jint) > max) break;
             const char *str = item != NULL ? env->GetStringUTFChars((jstring) item, NULL) : "NULL";
             jint len = strlen(str);
             if (pos + 1 + sizeof(len) + len > max) len = max - pos - 1 - sizeof(len);
-            buf[pos++] = EVENT_TYPE_STRING;
+            buf[pos++] = EVENT_TYPE_STRING; /* 类型为字符串. */
             memcpy(&buf[pos], &len, sizeof(len));
             memcpy(&buf[pos + sizeof(len)], str, len);
             pos += sizeof(len) + len;
@@ -117,13 +117,13 @@ static jint android_util_EventLog_writeEvent_Array(JNIEnv* env, jobject clazz,
         } else if (env->IsInstanceOf(item, gIntegerClass)) {
             jint intVal = env->GetIntField(item, gIntegerValueID);
             if (pos + 1 + sizeof(intVal) > max) break;
-            buf[pos++] = EVENT_TYPE_INT;
+            buf[pos++] = EVENT_TYPE_INT; /* 类型为 int. */
             memcpy(&buf[pos], &intVal, sizeof(intVal));
             pos += sizeof(intVal);
         } else if (env->IsInstanceOf(item, gLongClass)) {
             jlong longVal = env->GetLongField(item, gLongValueID);
             if (pos + 1 + sizeof(longVal) > max) break;
-            buf[pos++] = EVENT_TYPE_LONG;
+            buf[pos++] = EVENT_TYPE_LONG; /* 类型为 long. */
             memcpy(&buf[pos], &longVal, sizeof(longVal));
             pos += sizeof(longVal);
         } else {
@@ -135,9 +135,9 @@ static jint android_util_EventLog_writeEvent_Array(JNIEnv* env, jobject clazz,
         env->DeleteLocalRef(item);
     }
 
-    buf[0] = EVENT_TYPE_LIST;
-    buf[1] = copied;
-    buf[pos++] = '\n';
+    buf[0] = EVENT_TYPE_LIST; /* 第一个字节设置为 List 类型.*/
+    buf[1] = copied;    /* 列表的长度. */
+    buf[pos++] = '\n';  /* 结束符. */
     return android_bWriteLog(tag, buf, pos);
 }
 
