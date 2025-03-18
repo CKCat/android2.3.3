@@ -32,12 +32,13 @@ static int g_tail_lines = 0;
 
 #define LOG_FILE_DIR    "/dev/log/"
 
+/* 日志记录队列结构体.每一种类型的日志记录都对应有一个日志记录队列. */
 struct queued_entry_t {
-    union {
+    union { /* 日志内容 */
         unsigned char buf[LOGGER_ENTRY_MAX_LEN + 1] __attribute__((aligned(4)));
         struct logger_entry entry __attribute__((aligned(4)));
     };
-    queued_entry_t* next;
+    queued_entry_t* next; /* 下一个日志记录队列 */ 
 
     queued_entry_t() {
         next = NULL;
@@ -52,15 +53,16 @@ static int cmp(queued_entry_t* a, queued_entry_t* b) {
     return a->entry.nsec - b->entry.nsec;
 }
 
+/* 日志设备. */
 struct log_device_t {
-    char* device;
-    bool binary;
-    int fd;
-    bool printed;
-    char label;
+    char* device; /* 日志设备名称. /dev/log/xxx */
+    bool binary;  /* 是否是二进制日志. */
+    int fd;       /* 日志设备文件描述符. */  
+    bool printed; /* 是否已经是输出状态. */
+    char label;   /* 日志设备的标号，分别为 m,s,r,e*/
 
-    queued_entry_t* queue;
-    log_device_t* next;
+    queued_entry_t* queue; /* 日志记录队列. */
+    log_device_t* next; /* 连接下一个日志设备. */
 
     log_device_t(char* d, bool b, char l) {
         device = d;
@@ -71,12 +73,13 @@ struct log_device_t {
         printed = false;
     }
 
+    /* 将一条日志添加到内部的日志记录队列中. */
     void enqueue(queued_entry_t* entry) {
         if (this->queue == NULL) {
             this->queue = entry;
         } else {
             queued_entry_t** e = &this->queue;
-            while (*e && cmp(entry, *e) >= 0) {
+            while (*e && cmp(entry, *e) >= 0) {/* 按照时间顺序插入. */ 
                 e = &((*e)->next);
             }
             entry->next = *e;
@@ -153,6 +156,7 @@ void printBinary(struct logger_entry *buf)
     int ret;
     
     do {
+        /* 直接使用 write 输出到文件或标准输出. */
         ret = write(g_outFD, buf, size);
     } while (ret < 0 && errno == EINTR);
 }
@@ -163,19 +167,19 @@ static void processBuffer(log_device_t* dev, struct logger_entry *buf)
     int err;
     AndroidLogEntry entry;
     char binaryMsgBuf[1024];
-
-    if (dev->binary) {
+    /* 将内容转换为 AndroidLogEntry 结构体. */
+    if (dev->binary) {/* 如果是 evnents 日志. */
         err = android_log_processBinaryLogBuffer(buf, &entry, g_eventTagMap,
                 binaryMsgBuf, sizeof(binaryMsgBuf));
         //printf(">>> pri=%d len=%d msg='%s'\n",
         //    entry.priority, entry.messageLen, entry.message);
-    } else {
+    } else { /* 其他日志 */
         err = android_log_processLogBuffer(buf, &entry);
     }
     if (err < 0) {
         goto error;
     }
-
+    /* 根据标签判断是否输出.*/
     if (android_log_shouldPrintLine(g_logformat, entry.tag, entry.priority)) {
         if (false && g_devCount > 1) {
             binaryMsgBuf[0] = dev->label;
@@ -186,7 +190,7 @@ static void processBuffer(log_device_t* dev, struct logger_entry *buf)
                 exit(-1);
             }
         }
-
+        /* 输出日志到文件或标准输出. */
         bytesWritten = android_log_printLogLine(g_logformat, g_outFD, &entry);
 
         if (bytesWritten < 0) {
@@ -200,6 +204,7 @@ static void processBuffer(log_device_t* dev, struct logger_entry *buf)
     if (g_logRotateSizeKBytes > 0 
         && (g_outByteCount / 1024) >= g_logRotateSizeKBytes
     ) {
+        /* 设置下一个日志输出文件. */
         rotateLogs();
     }
 
@@ -268,24 +273,29 @@ static void readLogLines(log_device_t* devices)
         do {
             timeval timeout = { 0, 5000 /* 5ms */ }; // If we oversleep it's ok, i.e. ignore EINTR.
             FD_ZERO(&readset);
+            /* readset 保存所有打开的日志设备文件描述符.*/
             for (dev=devices; dev; dev = dev->next) {
                 FD_SET(dev->fd, &readset);
             }
+            /* 监控是否有内容可读.*/
             result = select(max + 1, &readset, NULL, NULL, sleep ? NULL : &timeout);
-        } while (result == -1 && errno == EINTR);
+        } while (result == -1 && errno == EINTR);/* 条件成立的话则表明有信号处理. 需要重新设置*/
 
         if (result >= 0) {
+            /* 依次处理有新的日志可读的日志设备. */
             for (dev=devices; dev; dev = dev->next) {
                 if (FD_ISSET(dev->fd, &readset)) {
+                    /* 创建一个 queued_entry_t 对象. */
                     queued_entry_t* entry = new queued_entry_t();
                     /* NOTE: driver guarantees we read exactly one full entry */
+                    /* 将日志读到结构体中. */
                     ret = read(dev->fd, entry->buf, LOGGER_ENTRY_MAX_LEN);
-                    if (ret < 0) {
-                        if (errno == EINTR) {
+                    if (ret < 0) {/* 如果出错则退出程序.*/
+                        if (errno == EINTR) { /* 被信号中断. */
                             delete entry;
                             goto next;
                         }
-                        if (errno == EAGAIN) {
+                        if (errno == EAGAIN) { /* 以非阻塞模式打开. */
                             delete entry;
                             break;
                         }
@@ -296,24 +306,26 @@ static void readLogLines(log_device_t* devices)
                         fprintf(stderr, "read: Unexpected EOF!\n");
                         exit(EXIT_FAILURE);
                     }
-
+                    /* 将读到的日志内容添加到日志记录队列中. */
                     entry->entry.msg[entry->entry.len] = '\0';
-
+                    
                     dev->enqueue(entry);
                     ++queued_lines;
                 }
             }
 
-            if (result == 0) {
+            if (result == 0) { /* 为真，则表明 select 超时了.*/
                 // we did our short timeout trick and there's nothing new
                 // print everything we have and wait for more data
                 sleep = true;
-                while (true) {
+                while (true) { /* 输出之前已经读出来的日志记录. */
+                    /* 找到包含有最早未输出日志记录的日志设备. */
                     chooseFirst(devices, &dev);
                     if (dev == NULL) {
                         break;
                     }
                     if (g_tail_lines == 0 || queued_lines <= g_tail_lines) {
+                        /* 输出日志记录. */
                         printNextEntry(dev);
                     } else {
                         skipNextEntry(dev);
@@ -325,19 +337,23 @@ static void readLogLines(log_device_t* devices)
                 if (g_nonblock) {
                     exit(0);
                 }
-            } else {
+            } else { /* 可能还有新的日志可读. */
                 // print all that aren't the last in their list
                 sleep = false;
                 while (g_tail_lines == 0 || queued_lines > g_tail_lines) {
+                    
                     chooseFirst(devices, &dev);
                     if (dev == NULL || dev->queue->next == NULL) {
                         break;
                     }
                     if (g_tail_lines == 0) {
+                        /* 如果没有设置可以输出最新日志的条数，则直接输出.*/
                         printNextEntry(dev);
                     } else {
                         skipNextEntry(dev);
                     }
+                    /*  减少未输出的日志记录数，直到小于 g_tail_lines 
+                        并且没有新的日志可读，则去 result == 0 处执行输出日志. */
                     --queued_lines;
                 }
             }
@@ -366,13 +382,13 @@ static int getLogReadableSize(int logfd)
 
 static void setupOutput()
 {
-
+    /* g_outputFileName 为 NULL 则输出到标准输出. */
     if (g_outputFileName == NULL) {
         g_outFD = STDOUT_FILENO;
 
     } else {
         struct stat statbuf;
-
+        /* 输出到 g_outputFileName 文件. */
         g_outFD = openLogFile (g_outputFileName);
 
         if (g_outFD < 0) {
@@ -459,7 +475,7 @@ int main(int argc, char **argv)
     log_device_t* devices = NULL;
     log_device_t* dev;
     bool needBinary = false;
-
+    /* 创建一个全局的日志记录输出格式和输出过滤器对象. */
     g_logformat = android_log_format_new();
 
     if (argc == 2 && 0 == strcmp(argv[1], "--test")) {
@@ -474,7 +490,7 @@ int main(int argc, char **argv)
 
     for (;;) {
         int ret;
-
+        /* 解析命令行参数. */
         ret = getopt(argc, argv, "cdt:gsQf:r::n:v:b:B");
 
         if (ret < 0) {
@@ -482,36 +498,36 @@ int main(int argc, char **argv)
         }
 
         switch(ret) {
-            case 's': 
+            case 's': /* 设置默认过滤规则 */
                 // default to all silent
                 android_log_addFilterRule(g_logformat, "*:s");
             break;
 
-            case 'c':
+            case 'c': /* 设置清除日志标志 */
                 clearLog = 1;
                 mode = O_WRONLY;
             break;
 
-            case 'd':
+            case 'd': /* 设置为不阻塞，当没有日志可读时直接退出. */
                 g_nonblock = true;
             break;
 
-            case 't':
+            case 't': /* 设置只输出最新的日志记录的条数. */
                 g_nonblock = true;
                 g_tail_lines = atoi(optarg);
             break;
 
-            case 'g':
+            case 'g': /* 设置获取日志大小标志 */
                 getLogSize = 1;
             break;
 
-            case 'b': {
+            case 'b': { /* 初始化日志设备. */
                 char* buf = (char*) malloc(strlen(LOG_FILE_DIR) + strlen(optarg) + 1);
                 strcpy(buf, LOG_FILE_DIR);
-                strcat(buf, optarg);
+                strcat(buf, optarg); /*根据 optarg 设置日志设备路径. */
 
                 bool binary = strcmp(optarg, "events") == 0;
-                if (binary) {
+                if (binary) { /* 这里表示要解析 /system/etc/event-log-tags 文件. */
                     needBinary = true;
                 }
 
@@ -524,22 +540,22 @@ int main(int argc, char **argv)
                 } else {
                     devices = new log_device_t(buf, binary, optarg[0]);
                 }
-                android::g_devCount++;
+                android::g_devCount++; /* 记录 logcat 打开的日志设备的数量. */
             }
             break;
 
-            case 'B':
+            case 'B': /* 设置二进制输出标志. */
                 android::g_printBinary = 1;
             break;
 
-            case 'f':
+            case 'f': /* 设置输出文件路径. */
                 // redirect output to a file
 
                 android::g_outputFileName = optarg;
 
             break;
 
-            case 'r':
+            case 'r': /* 设置每个日志记录输出文件的最大容量. */
                 if (optarg == NULL) {                
                     android::g_logRotateSizeKBytes 
                                 = DEFAULT_LOG_ROTATE_SIZE_KBYTES;
@@ -556,7 +572,7 @@ int main(int argc, char **argv)
                 }
             break;
 
-            case 'n':
+            case 'n': /* 设置日志记录输出文件的最大个数.*/
                 if (!isdigit(optarg[0])) {
                     fprintf(stderr,"Invalid parameter to -r\n");
                     android::show_help(argv[0]);
@@ -566,7 +582,7 @@ int main(int argc, char **argv)
                 android::g_maxRotatedLogs = atoi(optarg);
             break;
 
-            case 'v':
+            case 'v': /* 设置日志格式 */
                 err = setLogFormat (optarg);
                 if (err < 0) {
                     fprintf(stderr,"Invalid parameter to -v\n");
@@ -577,7 +593,7 @@ int main(int argc, char **argv)
                 hasSetLogFormat = 1;
             break;
 
-            case 'Q':
+            case 'Q': /* 检查内核命令行参数并设置强制过滤规则 */
                 /* this is a *hidden* option used to start a version of logcat                 */
                 /* in an emulated device only. it basically looks for androidboot.logcat=      */
                 /* on the kernel command line. If something is found, it extracts a log filter */
@@ -652,13 +668,14 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!devices) {
+    if (!devices) {/* 默认情况下会打开 /dev/log/main */
         devices = new log_device_t(strdup("/dev/"LOGGER_LOG_MAIN), false, 'm');
         android::g_devCount = 1;
         int accessmode =
                   (mode & O_RDONLY) ? R_OK : 0
                 | (mode & O_WRONLY) ? W_OK : 0;
         // only add this if it's available
+        /* 如果 /dev/log/system 存在，也会打开它. */
         if (0 == access("/dev/"LOGGER_LOG_SYSTEM, accessmode)) {
             devices->next = new log_device_t(strdup("/dev/"LOGGER_LOG_SYSTEM), false, 's');
             android::g_devCount++;
@@ -672,10 +689,11 @@ int main(int argc, char **argv)
         android::show_help(argv[0]);
         exit(-1);
     }
-
+    /* 设置日志记录默认输出到文件还是标准输出. */
     android::setupOutput();
 
     if (hasSetLogFormat == 0) {
+        /* 没有指定输出格式，则通过环境变量 ANDROID_PRINTF_LOG 来设置. */
         const char* logFormat = getenv("ANDROID_PRINTF_LOG");
 
         if (logFormat != NULL) {
@@ -687,15 +705,17 @@ int main(int argc, char **argv)
             }
         }
     }
-
+    /* 如果指定了 Q 参数，则设置 forceFilters 为 /proc/cmdline 中的日志输出过滤器.*/
     if (forceFilters) {
+        /* 添加 forceFilters 到输出过滤器列表. */
         err = android_log_addFilterString(g_logformat, forceFilters);
         if (err < 0) {
             fprintf (stderr, "Invalid filter expression in -logcat option\n");
             exit(0);
         }
-    } else if (argc == optind) {
+    } else if (argc == optind) { /* 判断是否指定了其他额外参数. */
         // Add from environment variable
+        /* 如果没有指定，则使用环境变量 ANDROID_LOG_TAGS 的值作为过滤器. */
         char *env_tags_orig = getenv("ANDROID_LOG_TAGS");
 
         if (env_tags_orig != NULL) {
@@ -708,8 +728,9 @@ int main(int argc, char **argv)
                 exit(-1);
             }
         }
-    } else {
+    } else { /* 如果指定了其他额外参数. */
         // Add from commandline
+        /* 循环检查这些额外参数是否是日志记录输出过滤器.*/
         for (int i = optind ; i < argc ; i++) {
             err = android_log_addFilterString(g_logformat, argv[i]);
 
@@ -722,7 +743,7 @@ int main(int argc, char **argv)
     }
 
     dev = devices;
-    while (dev) {
+    while (dev) { /* 打开所有的日志设备. */
         dev->fd = open(dev->device, mode);
         if (dev->fd < 0) {
             fprintf(stderr, "Unable to open log device '%s': %s\n",
@@ -774,9 +795,9 @@ int main(int argc, char **argv)
     //LOG_EVENT_LONG(11, 0x1122334455667788LL);
     //LOG_EVENT_STRING(0, "whassup, doc?");
 
-    if (needBinary)
+    if (needBinary)/* 如果包含二进制，则表明打开了 events 日志.*/
         android::g_eventTagMap = android_openEventTagMap(EVENT_TAG_MAP_FILE);
-
+    /* 开始读取打开的日志设备的日志记录. */
     android::readLogLines(devices);
 
     return 0;

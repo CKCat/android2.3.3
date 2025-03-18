@@ -26,6 +26,7 @@
 extern "C" {
 #endif
 
+/* 日志记录的输出格式. */
 typedef enum {
     FORMAT_OFF = 0,
     FORMAT_BRIEF,
@@ -40,6 +41,7 @@ typedef enum {
 
 typedef struct AndroidLogFormat_t AndroidLogFormat;
 
+/* 经过解析的日志记录. */
 typedef struct AndroidLogEntry_t {
     time_t tv_sec;
     long tv_nsec;

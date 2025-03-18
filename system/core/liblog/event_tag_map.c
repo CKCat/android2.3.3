@@ -26,24 +26,25 @@
 #define OUT_TAG "EventTagMap"
 
 /*
- * Single entry.
+ * Single entry. 类型为 events 日志记录的标签号.
  */
 typedef struct EventTag {
-    unsigned int    tagIndex;
-    const char*     tagStr;
+    unsigned int    tagIndex;   /* 标签号. */
+    const char*     tagStr;     /* 标签描述. */
 } EventTag;
 
 /*
- * Map.
+ *  Map. 类型为 events 日志记录的内容格式.
+ *  通过解析 /system/etc/event-log-tags 文件得到.
  */
 struct EventTagMap {
     /* memory-mapped source file; we get strings from here */
-    void*           mapAddr;
-    size_t          mapLen;
+    void*           mapAddr;   /* 文件映射起始地址. */
+    size_t          mapLen;    /* 内存大小. */
 
     /* array of event tags, sorted numerically by tag index */
-    EventTag*       tagArray;
-    int             numTags;
+    EventTag*       tagArray;   /* 事件标签数组. */
+    int             numTags;    /* 事件标签数量. */
 };
 
 /* fwd */
@@ -66,11 +67,11 @@ EventTagMap* android_openEventTagMap(const char* fileName)
     EventTagMap* newTagMap;
     off_t end;
     int fd = -1;
-
+    /* 创建一个 EventTagMap 对象. */
     newTagMap = calloc(1, sizeof(EventTagMap));
     if (newTagMap == NULL)
         return NULL;
-
+    /* 打开 /system/etc/event-log-tags 文件. */
     fd = open(fileName, O_RDONLY);
     if (fd < 0) {
         fprintf(stderr, "%s: unable to open map '%s': %s\n",
@@ -84,7 +85,7 @@ EventTagMap* android_openEventTagMap(const char* fileName)
         fprintf(stderr, "%s: unable to seek map '%s'\n", OUT_TAG, fileName);
         goto fail;
     }
-
+    /* 将文件映射到内存中. */
     newTagMap->mapAddr = mmap(NULL, end, PROT_READ | PROT_WRITE, MAP_PRIVATE,
                                 fd, 0);
     if (newTagMap->mapAddr == MAP_FAILED) {
@@ -93,7 +94,7 @@ EventTagMap* android_openEventTagMap(const char* fileName)
         goto fail;
     }
     newTagMap->mapLen = end;
-
+    /* 解析内容. */
     if (processFile(newTagMap) != 0)
         goto fail;
 
@@ -129,7 +130,7 @@ const char* android_lookupEventTag(const EventTagMap* map, int tag)
 
     lo = 0;
     hi = map->numTags-1;
-
+    /* 使用二分法从数组中得到对应的描述字符串.*/
     while (lo <= hi) {
         int cmp;
 
@@ -187,7 +188,7 @@ static int processFile(EventTagMap* map)
 {
     EventTag* tagArray = NULL;
 
-    /* get a tag count */
+    /* get a tag count 根据 '\n' 计算行数*/
     map->numTags = countMapLines(map);
     if (map->numTags < 0)
         return -1;
@@ -195,17 +196,20 @@ static int processFile(EventTagMap* map)
     //printf("+++ found %d tags\n", map->numTags);
 
     /* allocate storage for the tag index array */
+    /* 分配数组空间*/
     map->tagArray = calloc(1, sizeof(EventTag) * map->numTags);
     if (map->tagArray == NULL)
         return -1;
 
     /* parse the file, null-terminating tag strings */
+    /* 解析内容从而得到 events 的日志记录标签表述表. */
     if (parseMapLines(map) != 0) {
         fprintf(stderr, "%s: file parse failed\n", OUT_TAG);
         return -1;
     }
 
     /* sort the tags and check for duplicates */
+    /* 对标签进行排序.按日志标签号从小到大排列. */
     if (sortTags(map) != 0)
         return -1;
 

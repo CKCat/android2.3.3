@@ -29,17 +29,20 @@
 #include <cutils/logd.h>
 #include <cutils/logprint.h>
 
+/* 日志记录输出过滤器 */
 typedef struct FilterInfo_t {
-    char *mTag;
-    android_LogPriority mPri;
-    struct FilterInfo_t *p_next;
+    char *mTag;                 /* 日志标签. */
+    android_LogPriority mPri;   /* 日志优先级，大于该优先级则输出. */
+    struct FilterInfo_t *p_next;/* 下一个过滤器. */
 } FilterInfo;
 
+/* 保存日志记录的输出格式以及输出过滤器. */
 struct AndroidLogFormat_t {
-    android_LogPriority global_pri;
-    FilterInfo *filters;
-    AndroidLogPrintFormat format;
+    android_LogPriority global_pri; /* 全局的默认过滤优先级.*/
+    FilterInfo *filters;            /* 过滤器列表 */
+    AndroidLogPrintFormat format;   /* 日志记录的输出格式 */
 };
+
 
 static FilterInfo * filterinfo_new(const char * tag, android_LogPriority pri)
 {
@@ -171,7 +174,7 @@ AndroidLogFormat *android_log_format_new()
     AndroidLogFormat *p_ret;
 
     p_ret = calloc(1, sizeof(AndroidLogFormat));
-
+    /* 全局默认日志记录过滤优先级为 ANDROID_LOG_VERBOSE */
     p_ret->global_pri = ANDROID_LOG_VERBOSE;
     p_ret->format = FORMAT_BRIEF;
 
@@ -237,7 +240,7 @@ int android_log_addFilterRule(AndroidLogFormat *p_format,
     size_t i=0;
     size_t tagNameLength;
     android_LogPriority pri = ANDROID_LOG_DEFAULT;
-
+    /* 获取过滤器冒号的位置 */
     tagNameLength = strcspn(filterExpression, ":");
 
     if (tagNameLength == 0) {
@@ -245,13 +248,14 @@ int android_log_addFilterRule(AndroidLogFormat *p_format,
     }
 
     if(filterExpression[tagNameLength] == ':') {
+        /* 将冒号后面的字符转换为 android_LogPriority 枚举值. */
         pri = filterCharToPri(filterExpression[tagNameLength+1]);
 
         if (pri == ANDROID_LOG_UNKNOWN) {
             goto error;
         }
     }
-
+    /* 如果过滤器为 * 则将它的优先级设置为全局优先级. */
     if(0 == strncmp("*", filterExpression, tagNameLength)) {
         // This filter expression refers to the global filter
         // The default level for this is DEBUG if the priority
@@ -261,7 +265,7 @@ int android_log_addFilterRule(AndroidLogFormat *p_format,
         }
 
         p_format->global_pri = pri;
-    } else {
+    } else {/* 否则将过滤器添加到过滤器列表中. */
         // for filter expressions that don't refer to the global
         // filter, the default is verbose if the priority is unspecified
         if (pri == ANDROID_LOG_DEFAULT) {
@@ -305,7 +309,7 @@ error:
  */
 
 int android_log_addFilterString(AndroidLogFormat *p_format,
-        const char *filterString)
+        const char *filterString /* 包括若干个日志记录输出过滤表达式. */)
 {
     char *filterStringCopy = strdup (filterString);
     char *p_cur = filterStringCopy;
@@ -313,6 +317,7 @@ int android_log_addFilterString(AndroidLogFormat *p_format,
     int err;
 
     // Yes, I'm using strsep
+    /* 过滤器以空格 制表符 或 逗号分割. */
     while (NULL != (p_ret = strsep(&p_cur, " \t,"))) {
         // ignore whitespace-only entries
         if(p_ret[0] != '\0') {
@@ -581,6 +586,7 @@ int android_log_processBinaryLogBuffer(struct logger_entry *buf,
     inCount -= 4;
 
     if (map != NULL) {
+        /*  在参数 map 中找到与日志标签值 tagIndex 对应的描述字符串.*/
         entry->tag = android_lookupEventTag(map, tagIndex);
     } else {
         entry->tag = NULL;
@@ -591,9 +597,9 @@ int android_log_processBinaryLogBuffer(struct logger_entry *buf,
      * stuff a generated tag value into the start of the output buffer and
      * shift the buffer pointers down.
      */
-    if (entry->tag == NULL) {
+    if (entry->tag == NULL) { /* 如果没有找到对应的描述字符串. */
         int tagLen;
-
+        /* 该标签值作为要输出的日志记录的标签值描述字符串. */
         tagLen = snprintf(messageBuf, messageBufLen, "[%d]", tagIndex);
         entry->tag = messageBuf;
         messageBuf += tagLen+1;
@@ -606,12 +612,13 @@ int android_log_processBinaryLogBuffer(struct logger_entry *buf,
     char* outBuf = messageBuf;
     size_t outRemaining = messageBufLen-1;      /* leave one for nul byte */
     int result;
+    /* 继续解析日志记录的内容字段. */
     result = android_log_printBinaryEvent(&eventData, &inCount, &outBuf,
                 &outRemaining);
     if (result < 0) {
         fprintf(stderr, "Binary log entry conversion failed\n");
         return -1;
-    } else if (result == 1) {
+    } else if (result == 1) { /* 这里这说明 messageBuf 空间不足. */
         if (outBuf > messageBuf) {
             /* leave an indicator */
             *(outBuf-1) = '!';
