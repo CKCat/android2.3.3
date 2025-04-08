@@ -159,66 +159,77 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 	return e;
 }
 
+/* 描述待处理的 Binder 工作项. */
 struct binder_work {
-	struct list_head entry;
+	struct list_head entry; /* 用于将该结构体嵌入得到一个宿主结构中. */
 	enum {
-		BINDER_WORK_TRANSACTION = 1,
-		BINDER_WORK_TRANSACTION_COMPLETE,
-		BINDER_WORK_NODE,
-		BINDER_WORK_DEAD_BINDER,
-		BINDER_WORK_DEAD_BINDER_AND_CLEAR,
-		BINDER_WORK_CLEAR_DEATH_NOTIFICATION,
-	} type;
+        BINDER_WORK_TRANSACTION = 1,             /* 表示一个事务 */
+        BINDER_WORK_TRANSACTION_COMPLETE,        /* 表示事务完成 */
+        BINDER_WORK_NODE,                        /* 表示一个 Binder 节点 */
+        BINDER_WORK_DEAD_BINDER,                 /* 表示一个死亡的 Binder */
+        BINDER_WORK_DEAD_BINDER_AND_CLEAR,       /* 表示一个死亡的 Binder 并需要清除 */
+        BINDER_WORK_CLEAR_DEATH_NOTIFICATION,    /* 表示清除死亡通知 */
+	} type; /* 宿主类型. */
 };
 
+/* 描述一个 binder 实体对象. */
 struct binder_node {
-	int debug_id;
-	struct binder_work work;
-	union {
-		struct rb_node rb_node;
-		struct hlist_node dead_node;
-	};
-	struct binder_proc *proc;
-	struct hlist_head refs;
-	int internal_strong_refs;
-	int local_weak_refs;
-	int local_strong_refs;
-	void __user *ptr;
-	void __user *cookie;
-	unsigned has_strong_ref : 1;
-	unsigned pending_strong_ref : 1;
-	unsigned has_weak_ref : 1;
-	unsigned pending_weak_ref : 1;
-	unsigned has_async_transaction : 1;
-	unsigned accept_fds : 1;
-	int min_priority : 8;
-	struct list_head async_todo;
+    int debug_id; /* 调试用的唯一标识符 */
+    struct binder_work work; /* 工作项，用于调度与该节点相关的任务 */
+    union {
+        struct rb_node rb_node; /* 红黑树节点，用于将节点插入到进程的 Binder 节点树中 */
+        struct hlist_node dead_node; /* 哈希链表节点，用于将死亡节点加入到全局死亡列表中 */
+    };
+    struct binder_proc *proc; /* 拥有该节点的进程 */
+    struct hlist_head refs; /* 引用链表头，管理对该节点的引用 */
+    int internal_strong_refs; /* 内部强引用计数 */
+    int local_weak_refs; /* 本地弱引用计数 */
+    int local_strong_refs; /* 本地强引用计数 */
+    void __user *ptr; /* 用户空间指针，指向 Binder 对象的实际数据 */
+    void __user *cookie; /* 用户空间上下文信息，通常用于标识对象 */
+    unsigned has_strong_ref : 1; /* 是否存在强引用 */
+    unsigned pending_strong_ref : 1; /* 是否有未处理的强引用请求 */
+    unsigned has_weak_ref : 1; /* 是否存在弱引用 */
+    unsigned pending_weak_ref : 1; /* 是否有未处理的弱引用请求 */
+    unsigned has_async_transaction : 1; /* 是否有异步事务正在处理 */
+    unsigned accept_fds : 1; /* 是否接受文件描述符 */
+    int min_priority : 8; /* 设置该节点的最小线程优先级 */
+    struct list_head async_todo; /* 记录所有待处理的异步事务 */
 };
 
+/* 描述 Service 组件的死亡接收通知. */
 struct binder_ref_death {
-	struct binder_work work;
-	void __user *cookie;
+	struct binder_work work; /* 死亡通知类型. */
+	void __user *cookie; /* 用户空间指针，指向接收死亡通知的对象地址. */
 };
 
+/* 描述 Binder 引用对象. */
 struct binder_ref {
 	/* Lookups needed: */
 	/*   node + proc => ref (transaction) */
 	/*   desc + proc => ref (transaction, inc/dec ref) */
 	/*   node => refs + procs (proc exit) */
-	int debug_id;
-	struct rb_node rb_node_desc;
-	struct rb_node rb_node_node;
-	struct hlist_node node_entry;
-	struct binder_proc *proc;
-	struct binder_node *node;
-	uint32_t desc;
-	int strong;
-	int weak;
-	struct binder_ref_death *death;
+	int debug_id; /* 调试相关. */
+	struct rb_node rb_node_desc; /* 红红黑树节点，用于将 binder_ref 按照desc 插入到进程的引用红黑树中. */
+	struct rb_node rb_node_node; /* 红黑树节点，用于将 binder_ref 按照 binder_node 插入到进程的引用红黑树中. */
+	struct hlist_node node_entry; /* 哈希链表节点，用于将 binder_ref 挂载到其引用的 binder_node 的引用链表中.*/
+	struct binder_proc *proc; /* 指向拥有该引用的进程. */
+	struct binder_node *node; /* 指向被引用的 binder 实体对象. */
+	uint32_t desc; /* Binder 引用对象描述符. */
+	int strong; /* 强引用计数. */
+	int weak; /* 弱引用计数. */
+	struct binder_ref_death *death; /* 指向与该引用关联的死亡通知对象. */
 };
 
+/* 描述 Binder 通信中使用的内核缓冲区. */
 struct binder_buffer {
+	/* 双向链表节点，用于将缓冲区按地址顺序加入到空闲或已分配缓冲区链表中。
+		空闲缓冲区会被挂载到 binder_proc 的 free_buffers 链表中。
+		已分配缓冲区会被挂载到 binder_proc 的 allocated_buffers 链表中。
+	*/
 	struct list_head entry; /* free and allocated entries by addesss */
+	/*红黑树节点，用于将缓冲区按大小（空闲缓冲区）或地址（已分配缓冲区）插入到红黑树中。
+	*/
 	struct rb_node rb_node; /* free entry by size or allocated entry */
 				/* by address */
 	unsigned free : 1;
@@ -476,17 +487,17 @@ static void binder_set_nice(long nice)
 
 static size_t binder_buffer_size(
 	struct binder_proc *proc, struct binder_buffer *buffer)
-{
+{	/* 如果 buffer 是最后一个缓冲区，返回剩余空间大小. */
 	if (list_is_last(&buffer->entry, &proc->buffers))
 		return proc->buffer + proc->buffer_size - (void *)buffer->data;
-	else
+	else /* 如果不是最后一个缓冲区,则需要用下一个起始地址 - buffer->data */
 		return (size_t)list_entry(buffer->entry.next,
 			struct binder_buffer, entry) - (size_t)buffer->data;
 }
 
 static void binder_insert_free_buffer(
 	struct binder_proc *proc, struct binder_buffer *new_buffer)
-{
+{	/* proc->freebuffers 是一个红黑树，管理进程中空闲内核缓冲区. */
 	struct rb_node **p = &proc->free_buffers.rb_node;
 	struct rb_node *parent = NULL;
 	struct binder_buffer *buffer;
@@ -494,14 +505,14 @@ static void binder_insert_free_buffer(
 	size_t new_buffer_size;
 
 	BUG_ON(!new_buffer->free);
-
+	/* 计算 new_buffer 的大小. */
 	new_buffer_size = binder_buffer_size(proc, new_buffer);
 
 	if (binder_debug_mask & BINDER_DEBUG_BUFFER_ALLOC)
 		printk(KERN_INFO "binder: %d: add free buffer, size %zd, "
 		       "at %p\n", proc->pid, new_buffer_size, new_buffer);
-
-	while (*p) {
+	/* 从根节点开始查找插入位置. */		
+	while (*p) { 
 		parent = *p;
 		buffer = rb_entry(parent, struct binder_buffer, rb_node);
 		BUG_ON(!buffer->free);
@@ -513,6 +524,7 @@ static void binder_insert_free_buffer(
 		else
 			p = &parent->rb_right;
 	}
+	/* 将 new_buffer 插入到进程 proc 的空闲缓冲区 free_buffers 中. */
 	rb_link_node(&new_buffer->rb_node, parent, p);
 	rb_insert_color(&new_buffer->rb_node, &proc->free_buffers);
 }
@@ -566,8 +578,11 @@ static struct binder_buffer *binder_buffer_lookup(
 	return NULL;
 }
 
-static int binder_update_page_range(struct binder_proc *proc, int allocate,
-	void *start, void *end, struct vm_area_struct *vma)
+/* 为指定的虚拟地址空间分配或释放物理页面. */
+static int binder_update_page_range(struct binder_proc *proc /* 目标进程 */, 
+	int allocate /* 0则释放，1则分配 */,
+	void *start /* 起始地址 */, void *end /* 结束地址 */, 
+	struct vm_area_struct *vma /* 映射的用户空间地址 */)
 {
 	void *page_addr;
 	unsigned long user_page_addr;
@@ -581,12 +596,12 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 
 	if (end <= start)
 		return 0;
-
+	/* binder_mmap 过程中 vma 不为空，其他情况都为空. */
 	if (vma)
 		mm = NULL;
 	else
 		mm = get_task_mm(proc->tsk);
-
+	/* 如果 vma 为空，就从目标进程 proc->vma 获取映射的用户地址空间. */
 	if (mm) {
 		down_write(&mm->mmap_sem);
 		vma = proc->vma;
@@ -600,13 +615,14 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 		       "map pages in userspace, no vma\n", proc->pid);
 		goto err_no_vma;
 	}
-
+	/* 为每一个虚拟地址空间页面分配一个物理页面. */
 	for (page_addr = start; page_addr < end; page_addr += PAGE_SIZE) {
 		int ret;
 		struct page **page_array_ptr;
 		page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];
 
 		BUG_ON(*page);
+		/* 分配一个物理页面 */
 		*page = alloc_page(GFP_KERNEL | __GFP_ZERO);
 		if (*page == NULL) {
 			printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
@@ -616,6 +632,7 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 		tmp_area.addr = page_addr;
 		tmp_area.size = PAGE_SIZE + PAGE_SIZE /* guard page? */;
 		page_array_ptr = page;
+		/* 映射内核地址空间 */
 		ret = map_vm_area(&tmp_area, PAGE_KERNEL, &page_array_ptr);
 		if (ret) {
 			printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
@@ -625,6 +642,7 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 		}
 		user_page_addr =
 			(uintptr_t)page_addr + proc->user_buffer_offset;
+		/* 映射用户地址空间 */
 		ret = vm_insert_page(vma, user_page_addr, page[0]);
 		if (ret) {
 			printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
@@ -641,8 +659,10 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 	return 0;
 
 free_range:
+	/* 依次释放每一个物理页面 */
 	for (page_addr = end - PAGE_SIZE; page_addr >= start;
 	     page_addr -= PAGE_SIZE) {
+		/* 获取一个与内核地址空间对应的物理页指针 */
 		page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];
 		if (vma)
 			zap_page_range(vma, (uintptr_t)page_addr +
@@ -650,6 +670,7 @@ free_range:
 err_vm_insert_page_failed:
 		unmap_kernel_range((unsigned long)page_addr, PAGE_SIZE);
 err_map_kernel_failed:
+		/* 释放物理页面 */
 		__free_page(*page);
 		*page = NULL;
 err_alloc_page_failed:
@@ -663,6 +684,7 @@ err_no_vma:
 	return -ENOMEM;
 }
 
+/* 分配内核缓冲区 */
 static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 	size_t data_size, size_t offsets_size, int is_async)
 {
@@ -2708,10 +2730,11 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	int ret;
 	struct vm_struct *area;
+	/* 获取 binder_proc 结构体. */
 	struct binder_proc *proc = filp->private_data;
 	const char *failure_string;
 	struct binder_buffer *buffer;
-
+	/* 如果映射空间超过 4M 则截断为 4M. */
 	if ((vma->vm_end - vma->vm_start) > SZ_4M)
 		vma->vm_end = vma->vm_start + SZ_4M;
 
@@ -2721,27 +2744,30 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)
 			proc->pid, vma->vm_start, vma->vm_end,
 			(vma->vm_end - vma->vm_start) / SZ_1K, vma->vm_flags,
 			(unsigned long)pgprot_val(vma->vm_page_prot));
-
+	/* 检查映射的用户地址空间是否可写，如果可写则出错返回. */
 	if (vma->vm_flags & FORBIDDEN_MMAP_FLAGS) {
 		ret = -EPERM;
 		failure_string = "bad vm_flags";
 		goto err_bad_arg;
 	}
+	/* 设置映射的地址空间不可拷贝，以及不可写. */
 	vma->vm_flags = (vma->vm_flags | VM_DONTCOPY) & ~VM_MAYWRITE;
-
+	/* 判断是否已经映射了内核缓冲区,如果是则错误返回.*/
 	if (proc->buffer) {
 		ret = -EBUSY;
 		failure_string = "already mapped";
 		goto err_already_mapped;
 	}
-
+	/* 在进程的内核地址空间中分配空间. */
 	area = get_vm_area(vma->vm_end - vma->vm_start, VM_IOREMAP);
 	if (area == NULL) {
 		ret = -ENOMEM;
 		failure_string = "get_vm_area";
 		goto err_get_vm_area_failed;
 	}
+	/* 保存起始地址. */
 	proc->buffer = area->addr;
+	/* 记录内核空间与用户空间的地址偏移. */
 	proc->user_buffer_offset = vma->vm_start - (uintptr_t)proc->buffer;
 
 #ifdef CONFIG_CPU_CACHE_VIPT
@@ -2752,27 +2778,32 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)
 		}
 	}
 #endif
+	/* 创建了物理页面结构数组, 需要与 PAGE_SIZE 对齐.*/
 	proc->pages = kzalloc(sizeof(proc->pages[0]) * ((vma->vm_end - vma->vm_start) / PAGE_SIZE), GFP_KERNEL);
 	if (proc->pages == NULL) {
 		ret = -ENOMEM;
 		failure_string = "alloc page array";
 		goto err_alloc_pages_failed;
 	}
+	/* 保存空间大小. */
 	proc->buffer_size = vma->vm_end - vma->vm_start;
-
+	/* 制定打开和关闭函数为 binder_vma_open 和 binder_vma_close */
 	vma->vm_ops = &binder_vm_ops;
 	vma->vm_private_data = proc;
-
+	/* 分配一个物理页面，*/
 	if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {
 		ret = -ENOMEM;
 		failure_string = "alloc small buf";
 		goto err_alloc_small_buf_failed;
 	}
+	/* 初始化 binder_buffer，并且将它加入到proc->buffers 列表中. */
 	buffer = proc->buffer;
 	INIT_LIST_HEAD(&proc->buffers);
 	list_add(&buffer->entry, &proc->buffers);
 	buffer->free = 1;
+	/* 将 buffer 加入到进程结构体 proc->free_buffers 中. */
 	binder_insert_free_buffer(proc, buffer);
+	/* 将异步事务的内核缓冲区设置为内核缓冲区的一半，防止异步事务消耗过多的内核缓冲. */
 	proc->free_async_space = proc->buffer_size / 2;
 	barrier();
 	proc->files = get_files_struct(current);
@@ -2800,23 +2831,25 @@ static int binder_open(struct inode *nodp, struct file *filp)
 
 	if (binder_debug_mask & BINDER_DEBUG_OPEN_CLOSE)
 		printk(KERN_INFO "binder_open: %d:%d\n", current->group_leader->pid, current->pid);
-
+	/* 为进程创建一个 binder_proc 结构体. */
 	proc = kzalloc(sizeof(*proc), GFP_KERNEL);
 	if (proc == NULL)
 		return -ENOMEM;
 	get_task_struct(current);
-	proc->tsk = current;
+	/* 初始化 binder_proc 结构体.*/
+	proc->tsk = current; /* 进程的任务控制块. */
 	INIT_LIST_HEAD(&proc->todo);
 	init_waitqueue_head(&proc->wait);
-	proc->default_priority = task_nice(current);
+	proc->default_priority = task_nice(current); /* 进程优先级. */
 	mutex_lock(&binder_lock);
 	binder_stats.obj_created[BINDER_STAT_PROC]++;
-	hlist_add_head(&proc->proc_node, &binder_procs);
-	proc->pid = current->group_leader->pid;
+	hlist_add_head(&proc->proc_node, &binder_procs); /* 添加到全局的 hash 队列中. */
+	proc->pid = current->group_leader->pid; /* 进程组ID. */
 	INIT_LIST_HEAD(&proc->delivered_death);
-	filp->private_data = proc;
+	filp->private_data = proc; /* 保存 binder_proc 结构体. */
 	mutex_unlock(&binder_lock);
 
+	/* 创建 /proc/binder/proc/<PID> 文件. */
 	if (binder_proc_dir_entry_proc) {
 		char strbuf[11];
 		snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);
@@ -3598,12 +3631,15 @@ static struct miscdevice binder_miscdev = {
 static int __init binder_init(void)
 {
 	int ret;
-
+	/* 创建 /proc/binder 目录. */
 	binder_proc_dir_entry_root = proc_mkdir("binder", NULL);
 	if (binder_proc_dir_entry_root)
+		/*创建 /proc/binder/proc 目录，其中每个文件以进程ID命名，保存了进行信息. */
 		binder_proc_dir_entry_proc = proc_mkdir("proc", binder_proc_dir_entry_root);
+	/* 创建一个 binder 设备. */
 	ret = misc_register(&binder_miscdev);
 	if (binder_proc_dir_entry_root) {
+		/* 创建下面5个文件，保存 binder 驱动的运行状态.*/
 		create_proc_read_entry("state", S_IRUGO, binder_proc_dir_entry_root, binder_read_proc_state, NULL);
 		create_proc_read_entry("stats", S_IRUGO, binder_proc_dir_entry_root, binder_read_proc_stats, NULL);
 		create_proc_read_entry("transactions", S_IRUGO, binder_proc_dir_entry_root, binder_read_proc_transactions, NULL);
