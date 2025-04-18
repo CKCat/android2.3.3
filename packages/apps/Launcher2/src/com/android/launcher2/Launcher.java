@@ -1468,20 +1468,20 @@ public final class Launcher extends Activity
 
     /**
      * Launches the intent referred by the clicked shortcut.
-     *
+     * 点击桌面图标时，将会调用 startActivitySafely
      * @param v The view representing the clicked shortcut.
      */
     public void onClick(View v) {
         Object tag = v.getTag();
-        if (tag instanceof ShortcutInfo) {
-            // Open shortcut
+        if (tag instanceof ShortcutInfo) { // 点击图标
+            // Open shortcut intent 包含要启动的 Activity 的 action, category,cmp等信息.
             final Intent intent = ((ShortcutInfo) tag).intent;
             int[] pos = new int[2];
             v.getLocationOnScreen(pos);
             intent.setSourceBounds(new Rect(pos[0], pos[1],
                     pos[0] + v.getWidth(), pos[1] + v.getHeight()));
-            startActivitySafely(intent, tag);
-        } else if (tag instanceof FolderInfo) {
+            startActivitySafely(intent, tag); // 启动 Activity
+        } else if (tag instanceof FolderInfo) { // 点击文件夹
             handleFolderClick((FolderInfo) tag);
         } else if (v == mHandleView) {
             if (isAllAppsVisible()) {
@@ -1493,9 +1493,9 @@ public final class Launcher extends Activity
     }
 
     void startActivitySafely(Intent intent, Object tag) {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); // 设置 flag 在新任务中启动.
         try {
-            startActivity(intent);
+            startActivity(intent); // 调用父类 android.app.Activity 的 startActivity.
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, R.string.activity_not_found, Toast.LENGTH_SHORT).show();
             Log.e(TAG, "Unable to launch. tag=" + tag + " intent=" + intent, e);
