@@ -1594,6 +1594,7 @@ class ActivityManagerProxy implements IActivityManager
         Parcel reply = Parcel.obtain();
         data.writeInterfaceToken(IActivityManager.descriptor);
         data.writeStrongBinder(app.asBinder());
+        // 将参数写入到 data 中,然后通过 mRemote 向 AMS 发送进程间通信请求.
         mRemote.transact(ATTACH_APPLICATION_TRANSACTION, data, reply, 0);
         reply.readException();
         data.recycle();

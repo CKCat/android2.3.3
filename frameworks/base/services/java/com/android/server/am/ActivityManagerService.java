@@ -1734,6 +1734,7 @@ public final class ActivityManagerService extends ActivityManagerNative
     final ProcessRecord startProcessLocked(String processName,
             ApplicationInfo info, boolean knownToBeDead, int intentFlags,
             String hostingType, ComponentName hostingName, boolean allowWhileBooting) {
+        // 检查请求创建的进程是否已经存在了.
         ProcessRecord app = getProcessRecordLocked(processName, info.uid);
         // We don't have to do anything more if:
         // (1) There is an existing application record; and
@@ -1789,6 +1790,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
         
         if (app == null) {
+            // 进程不存在就创建一个 ProcessRecordLocked 对象,并保存在 mProcessNames 中.
             app = newProcessRecordLocked(null, info, processName);
             mProcessNames.put(processName, info.uid, app);
         } else {
@@ -1807,7 +1809,7 @@ public final class ActivityManagerService extends ActivityManagerNative
             if (DEBUG_PROCESSES) Slog.v(TAG, "System not ready, putting on hold: " + app);
             return app;
         }
-
+        // 创建一个应用程序进程.
         startProcessLocked(app, hostingType, hostingNameStr);
         return (app.pid != 0) ? app : null;
     }
@@ -1836,6 +1838,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         mProcDeaths[0] = 0;
         
         try {
+            // 获取待创建进程的用户 ID 和用户组 ID.
             int uid = app.info.uid;
             int[] gids = null;
             try {
@@ -1871,6 +1874,8 @@ public final class ActivityManagerService extends ActivityManagerNative
             if ("1".equals(SystemProperties.get("debug.assert"))) {
                 debugFlags |= Zygote.DEBUG_ENABLE_ASSERT;
             }
+            // 使用 Process.start 来启动一个新的应用程序进程.
+            // 指定进程的入口函数为 android.app.ActivityThread.main()
             int pid = Process.start("android.app.ActivityThread",
                     mSimpleProcessManagement ? app.processName : null, uid, uid,
                     gids, debugFlags, null);
@@ -1919,10 +1924,15 @@ public final class ActivityManagerService extends ActivityManagerNative
                 app.removed = false;
                 mStartingProcesses.add(app);
             } else if (pid > 0) {
+                // 新的进程创建成功之后，会得到一个大于 0 的进程ID.
                 app.pid = pid;
                 app.removed = false;
                 synchronized (mPidsSelfLocked) {
+                    // mPidsSelfLocked 保存 app 所指向的 ProcessRecord 对象
                     this.mPidsSelfLocked.put(pid, app);
+                    // 向 AMS 发送 PROC_START_TIMEOUT_MSG 消息，处理超时操作.
+                    // 新的进程必须在 PROC_START_TIMEOUT 毫秒内启动完成，并想 AMS 发送
+                    // 启动完成的通知，以便 AMS 可以在它里面启动一个 Activity 组件.
                     Message msg = mHandler.obtainMessage(PROC_START_TIMEOUT_MSG);
                     msg.obj = app;
                     mHandler.sendMessageDelayed(msg, PROC_START_TIMEOUT);
@@ -3745,6 +3755,8 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
 
         final long origId = Binder.clearCallingIdentity();
+        // AMS 处理类型为 ACTIVITY_PAUSED_TRANSACTION 的进程间通信请求.
+        // token 指向 AMS 中与 Launcher 组件对应的 ActivityRecord 对象.
         mMainStack.activityPaused(token, icicle, false);
         Binder.restoreCallingIdentity(origId);
     }

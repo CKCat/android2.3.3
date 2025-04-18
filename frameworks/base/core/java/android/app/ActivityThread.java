@@ -133,7 +133,7 @@ public final class ActivityThread {
     static ContextImpl mSystemContext = null;
 
     static IPackageManager sPackageManager;
-
+    // mAppThread 是一个 Binder 本地对象, AMS 就是通过它来和应用程序通信.
     final ApplicationThread mAppThread = new ApplicationThread();
     final Looper mLooper = Looper.myLooper();
     final H mH = new H();
@@ -3613,8 +3613,10 @@ public final class ActivityThread {
             });
             android.ddm.DdmHandleAppName.setAppName("<pre-initialized>");
             RuntimeInit.setApplicationObject(mAppThread.asBinder());
+            // 获取 AMS 的一个代理对象.
             IActivityManager mgr = ActivityManagerNative.getDefault();
             try {
+                // 向 AMS 发送一个进程间通信请求.
                 mgr.attachApplication(mAppThread);
             } catch (RemoteException ex) {
             }
@@ -3681,12 +3683,12 @@ public final class ActivityThread {
         SamplingProfilerIntegration.start();
 
         Process.setArgV0("<pre-initialized>");
-
+        // 创建一个消息循环.
         Looper.prepareMainLooper();
         if (sMainThreadHandler == null) {
             sMainThreadHandler = new Handler();
         }
-
+        // 创建一个 ActivityThread 对象，并调用 attach 向 AMS 发送一个启动完成通知.
         ActivityThread thread = new ActivityThread();
         thread.attach(false);
 
@@ -3694,7 +3696,7 @@ public final class ActivityThread {
             Looper.myLooper().setMessageLogging(new
                     LogPrinter(Log.DEBUG, "ActivityThread"));
         }
-
+        // 使当前进程进入到这个消息循环中.
         Looper.loop();
 
         if (Process.supportsProcesses()) {

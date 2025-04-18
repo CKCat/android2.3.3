@@ -594,6 +594,8 @@ public class ActivityStack {
     private final void startSpecificActivityLocked(ActivityRecord r,
             boolean andResume, boolean checkConfig) {
         // Is this activity's application already running?
+        // 通过用户ID和进程名判断 Activity 所需的进程是否已经存在.
+        // 进程名由该 Activity 组件的 android:process 属性来决定.
         ProcessRecord app = mService.getProcessRecordLocked(r.processName,
                 r.info.applicationInfo.uid);
         
@@ -618,7 +620,8 @@ public class ActivityStack {
             // If a dead object exception was thrown -- fall through to
             // restart the application.
         }
-
+        // 由于 MainActivity 是第一次被启动，系统中不可能存在所需要的进程，这时就要调用 
+        // startProcessLocked 来为 MainActivity 创建一个进程.
         mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
                 "activity", r.intent.getComponent(), false);
     }
@@ -739,6 +742,7 @@ public class ActivityStack {
         ActivityRecord r = null;
 
         synchronized (mService) {
+            // 根据 token 找到与 Launcher 组件对应的 ActivityRecord 对象 r.
             int index = indexOfTokenLocked(token);
             if (index >= 0) {
                 r = (ActivityRecord)mHistory.get(index);
@@ -746,8 +750,11 @@ public class ActivityStack {
                     r.icicle = icicle;
                     r.haveState = true;
                 }
+                // 删除 AMS 所运行的线程的消息队列中的 PAUSE_TIMEOUT_MSG 消息.
+                // 因为 Launcher 已经在规定的时间内完成了相应的任务.
                 mHandler.removeMessages(PAUSE_TIMEOUT_MSG, r);
                 if (mPausingActivity == r) {
+                    // 设置状态为 PAUSED，并执行 completePauseLocked 来启动 MainActivity.
                     r.state = ActivityState.PAUSED;
                     completePauseLocked();
                 } else {
@@ -761,6 +768,7 @@ public class ActivityStack {
     }
 
     private final void completePauseLocked() {
+        // 将 prev 指向 mPausingActivity，即 Launcher 组件.
         ActivityRecord prev = mPausingActivity;
         if (DEBUG_PAUSE) Slog.v(TAG, "Complete pause: " + prev);
         
@@ -800,10 +808,12 @@ public class ActivityStack {
                 if (DEBUG_PAUSE) Slog.v(TAG, "App died during pause, not stopping: " + prev);
                 prev = null;
             }
+            // 设置为 null 表示当前中止的 Activity 组件已经 Paused 了.
             mPausingActivity = null;
         }
 
         if (!mService.mSleeping && !mService.mShuttingDown) {
+            // 如果系统非睡眠或关机状态，则启动栈顶的 Activity 组件.
             resumeTopActivityLocked(prev);
         } else {
             if (mGoingToSleep.isHeld()) {
@@ -1355,6 +1365,8 @@ public class ActivityStack {
                 }
                 if (DEBUG_SWITCH) Slog.v(TAG, "Restarting: " + next);
             }
+            // MainActivity 尚未启动起来，所以 next.app 就为 null.
+            // 接下来就调用 startSpecificActivityLocked 将它启动起来.
             startSpecificActivityLocked(next, true, true);
         }
 
