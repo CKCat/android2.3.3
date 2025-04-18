@@ -70,6 +70,7 @@ import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
+import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -2824,10 +2825,19 @@ public class Activity extends ContextThemeWrapper
      */
     public void startActivityForResult(Intent intent, int requestCode) {
         if (mParent == null) {
+            // mInstrumentation 为Activity的成员变量，用来监控应用程序和系统之间的交互操作.
+            // 调用 mInstrumentation 的 execStartActivity 来启动 Activity 组件的操作，
+            // 以便它可以监控这个交互过程.
+            //
+            // mMainThread 表示一个应用程序进程,其成员函数 getApplicationThread 获取
+            // 它内部一个的类型为 ApplicationThread 的 Binder 本地对象.
+            //
+            // mToken 是一个 Binder 代理对象,指向 ActivityManagerService 中一个类型为
+            // ActivityRecord 的 Binder 本地对象.
             Instrumentation.ActivityResult ar =
                 mInstrumentation.execStartActivity(
                     this, mMainThread.getApplicationThread(), mToken, this,
-                    intent, requestCode);
+                    intent, requestCode); 
             if (ar != null) {
                 mMainThread.sendActivityResult(
                     mToken, mEmbeddedID, requestCode, ar.getResultCode(),
@@ -2930,7 +2940,7 @@ public class Activity extends ContextThemeWrapper
      */
     @Override
     public void startActivity(Intent intent) {
-        startActivityForResult(intent, -1);
+        startActivityForResult(intent, -1); // -1 表示 Launcher 组件不需要执行结果.
     }
 
     /**

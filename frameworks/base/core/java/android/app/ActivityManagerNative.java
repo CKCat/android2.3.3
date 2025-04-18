@@ -45,6 +45,8 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.management.Notification;
+
 /** {@hide} */
 public abstract class ActivityManagerNative extends Binder implements IActivityManager
 {
@@ -76,10 +78,12 @@ public abstract class ActivityManagerNative extends Binder implements IActivityM
             //    "ActivityManager", "returning cur default = " + gDefault);
             return gDefault;
         }
+        // 获取一个名为 activity 的 ActivityManagerService 服务代理对象.
         IBinder b = ServiceManager.getService("activity");
         if (Config.LOGV) Log.v(
             "ActivityManager", "default service binder = " + b);
-        gDefault = asInterface(b);
+        // 封装成一个类型为 ActivityManagerProxy 的代理对象.
+        gDefault = asInterface(b); 
         if (Config.LOGV) Log.v(
             "ActivityManager", "default service = " + gDefault);
         return gDefault;
@@ -1329,6 +1333,11 @@ class ActivityManagerProxy implements IActivityManager
         return mRemote;
     }
     
+    /*
+     * caller 指向 Launcher 组件所运行在的应用程序进程的 ApplicationThread 对象.
+     * intent 包含了即将要启动的 MainActivity 组件的信息.
+     * resultTo 指向 ActivityManagerService 内部的一个 ActivityRecord 对象.
+     */
     public int startActivity(IApplicationThread caller, Intent intent,
             String resolvedType, Uri[] grantedUriPermissions, int grantedMode,
             IBinder resultTo, String resultWho,
@@ -1347,6 +1356,7 @@ class ActivityManagerProxy implements IActivityManager
         data.writeInt(requestCode);
         data.writeInt(onlyIfNeeded ? 1 : 0);
         data.writeInt(debug ? 1 : 0);
+        // 向ActivityManagerService发送一个START_ACTIVITY_TRANSACTION的进程间通信请求.
         mRemote.transact(START_ACTIVITY_TRANSACTION, data, reply, 0);
         reply.readException();
         int result = reply.readInt();

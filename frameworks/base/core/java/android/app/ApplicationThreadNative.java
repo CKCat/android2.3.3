@@ -434,7 +434,7 @@ class ApplicationThreadProxy implements IApplicationThread {
         data.writeInt(userLeaving ? 1 :0);
         data.writeInt(configChanges);
         mRemote.transact(SCHEDULE_PAUSE_ACTIVITY_TRANSACTION, data, null,
-                IBinder.FLAG_ONEWAY);
+                IBinder.FLAG_ONEWAY); // 进程间通信.
         data.recycle();
     }
 

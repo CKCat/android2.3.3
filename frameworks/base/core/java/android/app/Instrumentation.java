@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.app.Instrumentation.ActivityResult;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
@@ -1370,7 +1371,9 @@ public class Instrumentation {
                 }
             }
         }
-        try {
+        try { 
+            // getDefault 获取 ActivityManagerService 的一个代理对象.接着调用它的成员函数
+            // startActivity 来通知 ActivityManagerService 将一个 Activity 组件启动起来.
             int result = ActivityManagerNative.getDefault()
                 .startActivity(whoThread, intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
