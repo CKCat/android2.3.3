@@ -430,7 +430,8 @@ public final class ActivityThread {
 
             r.startsNotResumed = notResumed;
             r.isForward = isForward;
-
+            // 将 Activity 组件信息封装成一个 ActivityClientRecord 对象，然后向新创建
+            // 的应用程序进程的主线程消息队列发送一个 LAUNCH_ACTIVITY 的消息.
             queueOrSendMessage(H.LAUNCH_ACTIVITY, r);
         }
 
@@ -929,10 +930,13 @@ public final class ActivityThread {
             if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + msg.what);
             switch (msg.what) {
                 case LAUNCH_ACTIVITY: {
+                    // 将 msg.obj 转换为 ActivityClientRecord 对象.
                     ActivityClientRecord r = (ActivityClientRecord)msg.obj;
-
+                    // 获取一个 LoadedApk 对象，并保存在 r.packageInfo 中.
+                    // LoadedApk 用来描述一个已加载的 APK 文件.
                     r.packageInfo = getPackageInfoNoCheck(
                             r.activityInfo.applicationInfo);
+                    // 启动 r 描述的 Activity 组件(MainActivity).
                     handleLaunchActivity(r, null);
                 } break;
                 case RELAUNCH_ACTIVITY: {
@@ -1549,7 +1553,7 @@ public final class ActivityThread {
             r.packageInfo = getPackageInfo(aInfo.applicationInfo,
                     Context.CONTEXT_INCLUDE_CODE);
         }
-
+        // 获取 Activity 组件的包名以及类名，使用 ComponentName 对象保存.
         ComponentName component = r.intent.getComponent();
         if (component == null) {
             component = r.intent.resolveActivity(
@@ -1564,6 +1568,7 @@ public final class ActivityThread {
 
         Activity activity = null;
         try {
+            // 将它的类文件加载到内存中，并创建一个实列.
             java.lang.ClassLoader cl = r.packageInfo.getClassLoader();
             activity = mInstrumentation.newActivity(
                     cl, component.getClassName(), r.intent);
@@ -1591,6 +1596,7 @@ public final class ActivityThread {
                     + ", dir=" + r.packageInfo.getAppDir());
 
             if (activity != null) {
+                // 创建一个 ContextImpl 对象作为前面创建的 Activity 对象运行上下文环境.
                 ContextImpl appContext = new ContextImpl();
                 appContext.init(r.packageInfo, r.token, this);
                 appContext.setOuterContext(activity);
@@ -1598,6 +1604,7 @@ public final class ActivityThread {
                 Configuration config = new Configuration(mConfiguration);
                 if (DEBUG_CONFIGURATION) Slog.v(TAG, "Launching activity "
                         + r.activityInfo.name + " with config " + config);
+                // 使用 appContext 和 r 初始化 Activity 对象.
                 activity.attach(appContext, this, getInstrumentation(), r.token,
                         r.ident, app, r.intent, r.activityInfo, title, r.parent,
                         r.embeddedID, r.lastNonConfigurationInstance,
@@ -1615,6 +1622,7 @@ public final class ActivityThread {
                 }
 
                 activity.mCalled = false;
+                // 将 Activity 启动起来,其 onCreate 函数将被调用.
                 mInstrumentation.callActivityOnCreate(activity, r.state);
                 if (!activity.mCalled) {
                     throw new SuperNotCalledException(
@@ -1643,7 +1651,7 @@ public final class ActivityThread {
                 }
             }
             r.paused = true;
-
+            // 将 r.token 作为 key 保存 r 对象. token 指向 AMS 内部的 ActivityRecord 对象.
             mActivities.put(r.token, r);
 
         } catch (SuperNotCalledException e) {
@@ -1667,11 +1675,13 @@ public final class ActivityThread {
 
         if (localLOGV) Slog.v(
             TAG, "Handling launch of " + r);
+        // 将 Activity 组件启动起来.
         Activity a = performLaunchActivity(r, customIntent);
 
         if (a != null) {
             r.createdConfig = new Configuration(mConfiguration);
             Bundle oldState = r.state;
+            // 设置系统当前激活的 Activity 组件.
             handleResumeActivity(r.token, false, r.isForward);
 
             if (!r.activity.mFinished && r.startsNotResumed) {
