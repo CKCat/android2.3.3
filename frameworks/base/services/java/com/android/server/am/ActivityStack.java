@@ -658,20 +658,22 @@ public class ActivityStack {
             return;
         }
         if (DEBUG_PAUSE) Slog.v(TAG, "Start pausing: " + prev);
-        mResumedActivity = null;
+        mResumedActivity = null; 
         mPausingActivity = prev;
         mLastPausedActivity = prev;
         prev.state = ActivityState.PAUSING;
         prev.task.touchActiveTime();
 
         mService.updateCpuStats();
-        
+        // prev.app 类型为 ProcessRecord, 表示运行的进程. prev.app.thread 类型为 
+        // ApplicationThreadProxy, 引用类型为 ApplicationThread 的本地 Binder 对象.
         if (prev.app != null && prev.app.thread != null) {
             if (DEBUG_PAUSE) Slog.v(TAG, "Enqueueing pending pause: " + prev);
             try {
                 EventLog.writeEvent(EventLogTags.AM_PAUSE_ACTIVITY,
                         System.identityHashCode(prev),
                         prev.shortComponentName);
+                // 向 Launcher 发送 Pause 通知，以便其有机会执行一些数据保存操作.
                 prev.app.thread.schedulePauseActivity(prev, prev.finishing, userLeaving,
                         prev.configChangeFlags);
                 if (mMainStack) {
@@ -710,10 +712,13 @@ public class ActivityStack {
             } else {
                 if (DEBUG_PAUSE) Slog.v(TAG, "Key dispatch not paused for screen off");
             }
-
+            
             // Schedule a pause timeout in case the app doesn't respond.
             // We don't give it much time because this directly impacts the
             // responsiveness seen by the user.
+            // Launcher 处理完 AMS 发送给它的 puase 通知后，必须向 AMS 发送启动 MainActivity
+            // 的通知，以便 AMS 将栈顶的 MainActivity 启动起来.但是 AMS 不能无限等待，
+            // 这里就向 AMS 所在线程发送一个 PAUSE_TIMEOUT_MSG 到消息队列，处理超时操作.
             Message msg = mHandler.obtainMessage(PAUSE_TIMEOUT_MSG);
             msg.obj = prev;
             mHandler.sendMessageDelayed(msg, PAUSE_TIMEOUT);
@@ -1049,12 +1054,14 @@ public class ActivityStack {
      * nothing happened.
      */
     final boolean resumeTopActivityLocked(ActivityRecord prev) {
-        // Find the first activity that is not finishing.
+        // Find the first activity that is not finishing. 
+        // next 指向了即将启动的 Activity.
         ActivityRecord next = topRunningActivityLocked(null);
 
         // Remember how we'll process this pause/resume situation, and ensure
         // that the state is reset however we wind up proceeding.
-        final boolean userLeaving = mUserLeaving;
+        // 通过 userLeaving 变量来判断是否发送一个用户离开事件通知.
+        final boolean userLeaving = mUserLeaving; 
         mUserLeaving = false;
 
         if (next == null) {
@@ -1067,13 +1074,17 @@ public class ActivityStack {
 
         next.delayedResume = false;
         
+        // mResumedActivity 表示当前激活的 Activity 组件;
+        // mLastPausedActivity 表示上一次被终止的 Activity 组件;
+        // mPausingActivity 表示正在被终止的 Activity 组件.
         // If the top activity is the resumed one, nothing to do.
         if (mResumedActivity == next && next.state == ActivityState.RESUMED) {
             // Make sure we have executed any pending transitions, since there
             // should be nothing left to do at this point.
             mService.mWindowManager.executeAppTransition();
             mNoAnimActivities.clear();
-            return false;
+            // 这里直接返回，因为 Activity 组件已经启动和激活了.
+            return false; 
         }
 
         // If we are sleeping, and there is no resumed activity, and the top
@@ -1084,6 +1095,7 @@ public class ActivityStack {
             // should be nothing left to do at this point.
             mService.mWindowManager.executeAppTransition();
             mNoAnimActivities.clear();
+            // 这里表示系统正要进入关机和睡眠状态了，将这个 Activity 启动没有意义了.
             return false;
         }
         
@@ -1098,6 +1110,7 @@ public class ActivityStack {
         // until that is done.
         if (mPausingActivity != null) {
             if (DEBUG_SWITCH) Slog.v(TAG, "Skip resume: pausing=" + mPausingActivity);
+            // 这里需要等这个 Activity 终止完成之后，再启动.
             return false;
         }
 
@@ -1132,8 +1145,10 @@ public class ActivityStack {
         
         // We need to start pausing the current activity so the top one
         // can be resumed...
-        if (mResumedActivity != null) {
+        // mResumedActivity 指向了 Launcher，这里为true.
+        if (mResumedActivity != null) { 
             if (DEBUG_SWITCH) Slog.v(TAG, "Skip resume: need to start pausing");
+            // 通知当前组件进入 Paused 状态. 以便它可以将焦点让给即将要启动的 Activity 组件.
             startPausingLocked(userLeaving, false);
             return true;
         }
@@ -1348,7 +1363,8 @@ public class ActivityStack {
 
     private final void startActivityLocked(ActivityRecord r, boolean newTask,
             boolean doResume) {
-        final int NH = mHistory.size();
+        // 堆栈大小
+        final int NH = mHistory.size(); 
 
         int addPos = -1;
         
@@ -1387,7 +1403,9 @@ public class ActivityStack {
         // Place a new activity at top of stack, so it is next to interact
         // with the user.
         if (addPos < 0) {
-            addPos = NH;
+            // 当目标Activity是在新创建的任务中启动时，需要将其放在栈顶，
+            // 即将 addPos 设置为当前堆栈大小.
+            addPos = NH; 
         }
         
         // If we are not placing the new activity frontmost, we do not want
@@ -1399,6 +1417,7 @@ public class ActivityStack {
         }
         
         // Slot the activity into the history stack and proceed
+        // 将目标 Activity 组件保存到堆栈中.
         mHistory.add(addPos, r);
         r.inHistory = true;
         r.frontOfTask = newTask;
@@ -1473,6 +1492,7 @@ public class ActivityStack {
         }
 
         if (doResume) {
+            // 将栈顶的 Activity 组件激活,这个组件正好是 MainActivity 组件.
             resumeTopActivityLocked(null);
         }
     }
@@ -1883,11 +1903,14 @@ public class ActivityStack {
             boolean componentSpecified) {
 
         int err = START_SUCCESS;
-
-        ProcessRecord callerApp = null;
-        if (caller != null) {
+        // AMS 中每个应用程序进程使用 ProcessRecord 来表示.
+        ProcessRecord callerApp = null; 
+        if (caller != null) { 
+            // caller 指向 Launcher 进程的 ApplicationThread 对象.
+            // 这里获取的 callerApp 实际指向了 Launcher 组件所运行在的应用程序进程.
             callerApp = mService.getRecordForAppLocked(caller);
             if (callerApp != null) {
+                // 保存进程 PID 和 UID.
                 callingPid = callerApp.pid;
                 callingUid = callerApp.info.uid;
             } else {
@@ -1902,14 +1925,16 @@ public class ActivityStack {
             Slog.i(TAG, "Starting: " + intent + " from pid "
                     + (callerApp != null ? callerApp.pid : callingPid));
         }
-
-        ActivityRecord sourceRecord = null;
+        // sourceRecord 保存 Launcher 组件的一个 ActivityRecord 对象.
+        ActivityRecord sourceRecord = null; 
         ActivityRecord resultRecord = null;
         if (resultTo != null) {
+            // resultTo 指向 Launcher 组件在 AMS 中的一个 ActivityRecord 对象.
             int index = indexOfTokenLocked(resultTo);
             if (DEBUG_RESULTS) Slog.v(
                 TAG, "Sending result to " + resultTo + " (index " + index + ")");
             if (index >= 0) {
+                // mHistory 表示系统的 Activity 组件堆栈. 
                 sourceRecord = (ActivityRecord)mHistory.get(index);
                 if (requestCode >= 0 && !sourceRecord.finishing) {
                     resultRecord = sourceRecord;
@@ -1998,10 +2023,12 @@ public class ActivityStack {
                 }
             }
         }
-        
+        // r 表示即将启动的 Activity 组件,即 MainActivity 组件.
         ActivityRecord r = new ActivityRecord(mService, this, callerApp, callingUid,
                 intent, resolvedType, aInfo, mService.mConfiguration,
                 resultRecord, resultWho, requestCode, componentSpecified);
+        // 到这里就得到了执行启动的源 Activity 组件（Launcher）以及目标 Activity 
+        // 组件(MainActivity),分别保存在 ActivityRecord 对象 sourceRecord 和 r 中.
 
         if (mMainStack) {
             if (mResumedActivity == null
@@ -2031,7 +2058,7 @@ public class ActivityStack {
          
             mService.doPendingActivityLaunchesLocked(false);
         }
-        
+        // 进一步执行启动目标 Activity 组件(MainActivity)的操作.
         return startActivityUncheckedLocked(r, sourceRecord,
                 grantedUriPermissions, grantedMode, onlyIfNeeded, true);
     }
@@ -2041,11 +2068,13 @@ public class ActivityStack {
             int grantedMode, boolean onlyIfNeeded, boolean doResume) {
         final Intent intent = r.intent;
         final int callingUid = r.launchedFromUid;
-        
+        // 前面 Launcher 中的代码中只有 Intent.FLAG_ACTIVITY_NEW_TASK 被设置.
         int launchFlags = intent.getFlags();
         
         // We'll invoke onUserLeaving before onPause only if the launching
         // activity did not explicitly state that this is an automated launch.
+        // 由于是用户点击图标启动的，所以这里的 mUserLeaving 为 true.表示需要向源 Activity 
+        // 组件(Launcher)发动一个用户离开事件通知.
         mUserLeaving = (launchFlags&Intent.FLAG_ACTIVITY_NO_USER_ACTION) == 0;
         if (DEBUG_USER_LEAVING) Slog.v(TAG,
                 "startActivity() => mUserLeaving=" + mUserLeaving);
@@ -2107,7 +2136,7 @@ public class ActivityStack {
                 Activity.RESULT_CANCELED, null);
             r.resultTo = null;
         }
-
+        // 默认情况下要为目标 Activity 创建一个专属任务.
         boolean addingToTask = false;
         if (((launchFlags&Intent.FLAG_ACTIVITY_NEW_TASK) != 0 &&
                 (launchFlags&Intent.FLAG_ACTIVITY_MULTIPLE_TASK) == 0)
@@ -2301,12 +2330,14 @@ public class ActivityStack {
             if (mService.mCurTask <= 0) {
                 mService.mCurTask = 1;
             }
+            // 为目标 Activity 组件创建一个专属任务.
             r.task = new TaskRecord(mService.mCurTask, r.info, intent,
                     (r.info.flags&ActivityInfo.FLAG_CLEAR_TASK_ON_LAUNCH) != 0);
             if (DEBUG_TASKS) Slog.v(TAG, "Starting new activity " + r
                     + " in new task " + r.task);
             newTask = true;
             if (mMainStack) {
+                // 将新创建的专属任务交给 AMS 来管理.
                 mService.addRecentTaskLocked(r.task);
             }
             
@@ -2380,6 +2411,7 @@ public class ActivityStack {
             EventLog.writeEvent(EventLogTags.AM_CREATE_TASK, r.task.taskId);
         }
         logStartActivity(EventLogTags.AM_CREATE_ACTIVITY, r, r.task);
+        // 调用重载版的 startActivityLocked 来启动目标 Activity 组件.
         startActivityLocked(r, newTask, doResume);
         return START_SUCCESS;
     }
@@ -2402,6 +2434,7 @@ public class ActivityStack {
         // Collect information about the target of the Intent.
         ActivityInfo aInfo;
         try {
+            // 通过 PMS 获得即将启动的 Activity 组件的更多信息.
             ResolveInfo rInfo =
                 AppGlobals.getPackageManager().resolveIntent(
                         intent, resolvedType,
@@ -2512,7 +2545,7 @@ public class ActivityStack {
                     }
                 }
             }
-            
+            // 继续执行启动 Activity 组件的工作.
             int res = startActivityLocked(caller, intent, resolvedType,
                     grantedUriPermissions, grantedMode, aInfo,
                     resultTo, resultWho, requestCode, callingPid, callingUid,

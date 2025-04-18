@@ -433,8 +433,9 @@ class ApplicationThreadProxy implements IApplicationThread {
         data.writeInt(finished ? 1 : 0);
         data.writeInt(userLeaving ? 1 :0);
         data.writeInt(configChanges);
+        //  通过 Binder 代理对象 mRemote 向 Launcher 发送消息，实现异步的进程间通信.
         mRemote.transact(SCHEDULE_PAUSE_ACTIVITY_TRANSACTION, data, null,
-                IBinder.FLAG_ONEWAY); // 进程间通信.
+                IBinder.FLAG_ONEWAY);
         data.recycle();
     }
 

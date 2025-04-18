@@ -2072,12 +2072,15 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
         mPendingActivityLaunches.clear();
     }
-    
+
+    /* startActivity 处理类型为 START_ACTIVITY_TRANSACTION 的进程间通信请求. */
     public final int startActivity(IApplicationThread caller,
             Intent intent, String resolvedType, Uri[] grantedUriPermissions,
             int grantedMode, IBinder resultTo,
             String resultWho, int requestCode, boolean onlyIfNeeded,
-            boolean debug) {
+            boolean debug) { 
+        // mMainStack 表示 Activity 组件堆栈.
+        // startActivityMayWait 进一步处理启动 Activity 的操作.
         return mMainStack.startActivityMayWait(caller, intent, resolvedType,
                 grantedUriPermissions, grantedMode, resultTo, resultWho,
                 requestCode, onlyIfNeeded, debug, null, null);
