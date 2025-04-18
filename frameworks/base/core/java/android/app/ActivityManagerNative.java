@@ -1620,6 +1620,8 @@ class ActivityManagerProxy implements IActivityManager
     {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
+        // 将参数写入到 data 中，然后通过 ActivityManagerProxy 内部的 mRemote 向 AMS 
+        // 发送一个类型为 ACTIVITY_PAUSED_TRANSACTION 的进程间通信请求.
         data.writeInterfaceToken(IActivityManager.descriptor);
         data.writeStrongBinder(token);
         data.writeBundle(state);

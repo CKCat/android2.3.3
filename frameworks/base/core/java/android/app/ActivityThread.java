@@ -374,8 +374,13 @@ public final class ActivityThread {
         // Formatting for checkin service - update version if row format changes
         private static final int ACTIVITY_THREAD_CHECKIN_VERSION = 1;
 
+        /*
+         * 处理类型为 SCHEDULE_PAUSE_ACTIVITY_TRANSACTION 的进程间通信.
+         * token 指向了 AMS 中与 Launcher 对应的 ActivityRecord 对象.
+         */
         public final void schedulePauseActivity(IBinder token, boolean finished,
                 boolean userLeaving, int configChanges) {
+            // 向 Launcher 主线程消息队列发送一个类型为 PAUSE_ACTIVITY 的消息.
             queueOrSendMessage(
                     finished ? H.PAUSE_ACTIVITY_FINISHING : H.PAUSE_ACTIVITY,
                     token,
@@ -935,6 +940,7 @@ public final class ActivityThread {
                     handleRelaunchActivity(r, msg.arg1);
                 } break;
                 case PAUSE_ACTIVITY:
+                    // 将 obj 强制转换为 IBinder 类型，然后发送 PAUSE_ACTIVITY 消息. 
                     handlePauseActivity((IBinder)msg.obj, false, msg.arg1 != 0, msg.arg2);
                     maybeSnapshot();
                     break;
@@ -1516,9 +1522,10 @@ public final class ActivityThread {
             if (DEBUG_MESSAGES) Slog.v(
                 TAG, "SCHEDULE " + what + " " + mH.codeToString(what)
                 + ": " + arg1 + " / " + obj);
+            // mH 的类型为 H,继承自 Handler,可以调用 sendMessage 向程序的主线程发送消息.
             Message msg = Message.obtain();
             msg.what = what;
-            msg.obj = obj;
+            msg.obj = obj; // Binder 代理对象.
             msg.arg1 = arg1;
             msg.arg2 = arg2;
             mH.sendMessage(msg);
@@ -2280,21 +2287,29 @@ public final class ActivityThread {
 
     private final void handlePauseActivity(IBinder token, boolean finished,
             boolean userLeaving, int configChanges) {
+        // 应用程序的每个 Activity 组件都用 ActivityClientRecord 来表示，这些对象对应 
+        // AMS 中的 ActivityRecord 对象，并且保存在 mActivities 中.
+        // 这里的 token 指向 AMS 中与 Launcher 组件对应的 ActivityRecord 对象.根据其值
+        // 可以找到 Launcher 组件中的 ActivityClientRecord 对象.
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
             //Slog.v(TAG, "userLeaving=" + userLeaving + " handling pause of " + r);
             if (userLeaving) {
+                // 向 Launcher 发送一个用户离开事件通知，即调用它的成员函数 onUserLeaveHint.
                 performUserLeavingActivity(r);
             }
 
             r.activity.mConfigChangeFlags |= configChanges;
+            // 向 Launcher 发送一个中止事件通知，即调用它的成员函数 onPause.
             Bundle state = performPauseActivity(token, finished, true);
 
             // Make sure any pending writes are now committed.
+            // 等待前面的数据写入操作.
             QueuedWork.waitToFinish();
             
             // Tell the activity manager we have paused.
             try {
+                // 通知 AMS  Launcher 已经进入 Paused 状态了，它可以将 MainActivity 启动了.
                 ActivityManagerNative.getDefault().activityPaused(token, state);
             } catch (RemoteException ex) {
             }
