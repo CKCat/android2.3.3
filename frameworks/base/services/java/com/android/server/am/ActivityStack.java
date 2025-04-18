@@ -476,13 +476,14 @@ public class ActivityStack {
                     r.mayFreezeScreenLocked(app) ? r : null);
             mService.updateConfigurationLocked(config, r);
         }
-
+        // 这里表示 r 描述的 Activity 是在参数 app 所描述的应用程序进程中启动的.
         r.app = app;
 
         if (localLOGV) Slog.v(TAG, "Launching: " + r);
 
         int idx = app.activities.indexOf(r);
         if (idx < 0) {
+            // 将该 Activity 组件添加到参数 app 所描述的应用程序进程的 Activity 组件列表中.
             app.activities.add(r);
         }
         mService.updateLruProcessLocked(app, true, true);
@@ -510,6 +511,7 @@ public class ActivityStack {
                 mService.mHomeProcess = app;
             }
             mService.ensurePackageDexOpt(r.intent.getComponent().getPackageName());
+            // 调用下面函数来通知 r 所描述的 Activity 组件(MainActivity).
             app.thread.scheduleLaunchActivity(new Intent(r.intent), r,
                     System.identityHashCode(r),
                     r.info, r.icicle, results, newIntents, !andResume,

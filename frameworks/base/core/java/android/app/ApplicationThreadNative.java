@@ -499,6 +499,7 @@ class ApplicationThreadProxy implements IApplicationThread {
         data.writeTypedList(pendingNewIntents);
         data.writeInt(notResumed ? 1 : 0);
         data.writeInt(isForward ? 1 : 0);
+        // 向前面创建的进程发送一个类型为 SCHEDULE_LAUNCH_ACTIVITY_TRANSACTION 消息.
         mRemote.transact(SCHEDULE_LAUNCH_ACTIVITY_TRANSACTION, data, null,
                 IBinder.FLAG_ONEWAY);
         data.recycle();

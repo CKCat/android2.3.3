@@ -3448,6 +3448,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         ProcessRecord app;
         if (pid != MY_PID && pid >= 0) {
             synchronized (mPidsSelfLocked) {
+                // 通过 pid 获取 ProcessRecord 对象.
                 app = mPidsSelfLocked.get(pid);
             }
         } else if (mStartingProcesses.size() > 0) {
@@ -3495,15 +3496,16 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
 
         EventLog.writeEvent(EventLogTags.AM_PROC_BOUND, app.pid, app.processName);
-        
-        app.thread = thread;
+        // 初始化 app 对象, 参数thread 指向 ApplicationThread 代理对象.这样 AMS 就可以
+        // 通过这个代理对象和新创建的应用程序进行通信了.
+        app.thread = thread; 
         app.curAdj = app.setAdj = -100;
         app.curSchedGroup = Process.THREAD_GROUP_DEFAULT;
         app.setSchedGroup = Process.THREAD_GROUP_BG_NONINTERACTIVE;
         app.forcingToForeground = null;
         app.foregroundServices = false;
         app.debugging = false;
-
+        // 删除 AMS 所在线程的消息队列中的 PROC_START_TIMEOUT_MSG 消息.
         mHandler.removeMessages(PROC_START_TIMEOUT_MSG, app);
 
         boolean normalMode = mProcessesReady || isAllowedWhileBooting(app.info);
@@ -3573,11 +3575,16 @@ public final class ActivityManagerService extends ActivityManagerNative
         boolean didSomething = false;
 
         // See if the top visible activity is waiting to run in this process...
+        // 获取栈顶的 ActivityRecord 对象.
         ActivityRecord hr = mMainStack.topRunningActivityLocked(null);
         if (hr != null && normalMode) {
+            // 判断 hr 的用户ID和进程名与 app 所描述的是否一致.
             if (hr.app == null && app.info.uid == hr.info.applicationInfo.uid
                     && processName.equals(hr.processName)) {
                 try {
+                    // 如果一致，则说明 hr 所描述的 Activity 应该是在 app 所描述的应用
+                    // 程序进程中启动的.这里就直接调用下面函数来请求该应用程序启动一个
+                    // Activity 组件.
                     if (mMainStack.realStartActivityLocked(hr, app, true, true)) {
                         didSomething = true;
                     }
@@ -3664,6 +3671,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         synchronized (this) {
             int callingPid = Binder.getCallingPid();
             final long origId = Binder.clearCallingIdentity();
+            // 当执行到这里时，表明新的应用程进程已经启动完成了,接下来继续启动 MainActivity.
             attachApplicationLocked(thread, callingPid);
             Binder.restoreCallingIdentity(origId);
         }
