@@ -612,6 +612,7 @@ public class ActivityStack {
         
         if (app != null && app.thread != null) {
             try {
+                // 如果被启动 Activity 和启动它的 Activity 位于同一个任务.
                 realStartActivityLocked(r, app, andResume, checkConfig);
                 return;
             } catch (RemoteException e) {
@@ -1385,6 +1386,7 @@ public class ActivityStack {
         if (!newTask) {
             // If starting in an existing task, find where that is...
             boolean startIt = true;
+            // 在 Activity 组件堆栈 mHistory 中找到一个合适的位置 addPos.
             for (int i = NH-1; i >= 0; i--) {
                 ActivityRecord p = (ActivityRecord)mHistory.get(i);
                 if (p.finishing) {
@@ -2392,6 +2394,7 @@ public class ActivityStack {
             // An existing activity is starting this new activity, so we want
             // to keep the new one in the same task as the one that is starting
             // it.
+            // 当被启动的 Activity 与启动它的 Activity 在同一个任务中时.
             r.task = sourceRecord.task;
             if (DEBUG_TASKS) Slog.v(TAG, "Starting new activity " + r
                     + " in existing task " + r.task);
