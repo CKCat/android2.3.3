@@ -45,8 +45,6 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.management.Notification;
-
 /** {@hide} */
 public abstract class ActivityManagerNative extends Binder implements IActivityManager
 {

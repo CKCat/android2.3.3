@@ -70,7 +70,6 @@ import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
 import java.util.HashMap;
 
